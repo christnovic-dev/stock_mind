@@ -1,13 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:stockmind/features/core/constant/app_color.dart';
 
-import '../../dashboard/presentation/pages/overview_page.dart';
-
-const Color _red = Color(0xFFF21D3D);
-const Color _navy = Color(0xFF14264B);
-const Color _muted = Color(0xFF607399);
-const Color _bg = Color(0xFFF6F8FC);
-const Color _border = Color(0xFFE2E8F0);
+import '../../sidebar/overview/pages/overview_page.dart';
 
 class CompanyOnboardingPage extends StatefulWidget {
   const CompanyOnboardingPage({super.key});
@@ -29,7 +24,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
   final _logoUrl = TextEditingController();
 
   int _step = 0;
-  Color _brandColor = _red;
+  Color _brandColor = AppColors.primary;
   bool _sameShopName = true;
 
   final List<String> _steps = [
@@ -105,7 +100,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: _navy,
+        backgroundColor: AppColors.navy,
       ),
     );
   }
@@ -131,7 +126,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
               fontWeight: FontWeight.w800,
-              color: _navy,
+              color: AppColors.navy,
             ),
           ),
           content: Text(
@@ -140,7 +135,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
               fontSize: 12,
-              color: _muted,
+              color: AppColors.muted,
               height: 1.8,
             ),
           ),
@@ -158,7 +153,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _red,
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 15),
                 ),
@@ -174,7 +169,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: Column(
           children: [
@@ -194,7 +189,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                           style: GoogleFonts.poppins(
                             fontSize: 27,
                             fontWeight: FontWeight.w800,
-                            color: _navy,
+                            color: AppColors.navy,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -203,7 +198,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                           'selon les besoins de votre entreprise.',
                           style: GoogleFonts.poppins(
                             fontSize: 12,
-                            color: _muted,
+                            color: AppColors.muted,
                             height: 1.8,
                           ),
                         ),
@@ -218,10 +213,10 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(22),
-                            border: Border.all(color: _border),
+                            border: Border.all(color: AppColors.border),
                             boxShadow: [
                               BoxShadow(
-                                color: _navy.withValues(alpha: 0.035),
+                                color: AppColors.navy.withValues(alpha: 0.035),
                                 blurRadius: 25,
                                 offset: const Offset(0, 10),
                               ),
@@ -257,7 +252,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: _red,
+              color: AppColors.primary,
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(Icons.inventory_2_rounded, color: Colors.white),
@@ -266,7 +261,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           RichText(
             text: TextSpan(
               style: GoogleFonts.poppins(
-                color: _navy,
+                color: AppColors.navy,
                 fontWeight: FontWeight.w800,
                 fontSize: 21,
               ),
@@ -274,7 +269,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                 TextSpan(text: 'Stock'),
                 TextSpan(
                   text: 'Mind',
-                  style: TextStyle(color: _red),
+                  style: TextStyle(color: AppColors.primary),
                 ),
               ],
             ),
@@ -282,7 +277,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           const Spacer(),
           Text(
             'Configuration initiale',
-            style: GoogleFonts.poppins(color: _muted, fontSize: 11),
+            style: GoogleFonts.poppins(color: AppColors.muted, fontSize: 11),
           ),
         ],
       ),
@@ -304,10 +299,14 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: active || completed ? _red : Colors.white,
+                      color: active || completed
+                          ? AppColors.primary
+                          : Colors.white,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: active || completed ? _red : _border,
+                        color: active || completed
+                            ? AppColors.primary
+                            : AppColors.border,
                       ),
                     ),
                     child: Center(
@@ -320,7 +319,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                           : Text(
                               '${index + 1}',
                               style: GoogleFonts.poppins(
-                                color: active ? Colors.white : _muted,
+                                color: active ? Colors.white : AppColors.muted,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -332,7 +331,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                       child: Container(
                         height: 2,
                         margin: const EdgeInsets.symmetric(horizontal: 5),
-                        color: completed ? _red : _border,
+                        color: completed ? AppColors.primary : AppColors.border,
                       ),
                     ),
                 ],
@@ -346,7 +345,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           child: Text(
             'Étape ${_step + 1} sur ${_steps.length} : ${_steps[_step]}',
             style: GoogleFonts.poppins(
-              color: _red,
+              color: AppColors.primary,
               fontSize: 11,
               fontWeight: FontWeight.w700,
             ),
@@ -522,7 +521,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             _companyName.text.isEmpty ? 'Votre entreprise' : _companyName.text,
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-              color: _navy,
+              color: AppColors.primary,
               fontSize: 17,
               fontWeight: FontWeight.w700,
             ),
@@ -546,7 +545,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
                   color: color,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: selected ? _navy : Colors.transparent,
+                    color: selected ? AppColors.navy : Colors.transparent,
                     width: 3,
                   ),
                 ),
@@ -574,7 +573,11 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
         Text(
           'Pour le moment, tu peux renseigner une URL d’image. '
           'L’importation d’un fichier depuis ton appareil sera ajoutée ensuite.',
-          style: GoogleFonts.poppins(color: _muted, fontSize: 10, height: 1.7),
+          style: GoogleFonts.poppins(
+            color: AppColors.muted,
+            fontSize: 10,
+            height: 1.7,
+          ),
         ),
       ],
     );
@@ -617,10 +620,10 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           },
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
-          activeColor: _red,
+          activeColor: AppColors.primary,
           title: Text(
             'Utiliser le nom de la boutique pour son adresse',
-            style: GoogleFonts.poppins(color: _navy, fontSize: 11),
+            style: GoogleFonts.poppins(color: AppColors.navy, fontSize: 11),
           ),
         ),
         const SizedBox(height: 10),
@@ -651,14 +654,14 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           ),
           child: RichText(
             text: TextSpan(
-              style: GoogleFonts.poppins(color: _muted, fontSize: 11),
+              style: GoogleFonts.poppins(color: AppColors.muted, fontSize: 11),
               children: [
                 const TextSpan(text: 'Votre adresse :\n'),
                 TextSpan(
                   text:
                       'stockmind.app/${_slug.text.isEmpty ? "ma-boutique" : _slug.text}',
                   style: const TextStyle(
-                    color: _red,
+                    color: AppColors.primary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -692,7 +695,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           width: double.infinity,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: _bg,
+            color: AppColors.background,
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(
@@ -753,7 +756,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             color: const Color(0xFFFFEDF0),
             borderRadius: BorderRadius.circular(13),
           ),
-          child: Icon(icon, color: _red, size: 23),
+          child: Icon(icon, color: AppColors.primary, size: 23),
         ),
         const SizedBox(width: 13),
         Expanded(
@@ -763,7 +766,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
               Text(
                 title,
                 style: GoogleFonts.poppins(
-                  color: _navy,
+                  color: AppColors.navy,
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
                 ),
@@ -772,7 +775,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
               Text(
                 subtitle,
                 style: GoogleFonts.poppins(
-                  color: _muted,
+                  color: AppColors.muted,
                   fontSize: 11,
                   height: 1.7,
                 ),
@@ -788,7 +791,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
     return Text(
       text,
       style: GoogleFonts.poppins(
-        color: _navy,
+        color: AppColors.navy,
         fontSize: 11,
         fontWeight: FontWeight.w700,
       ),
@@ -802,21 +805,21 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
         color: const Color(0xFF9AA7BC),
         fontSize: 11,
       ),
-      prefixIcon: Icon(icon, color: _muted, size: 20),
+      prefixIcon: Icon(icon, color: AppColors.muted, size: 20),
       filled: true,
       fillColor: const Color(0xFFFCFDFF),
       contentPadding: const EdgeInsets.all(15),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: _border),
+        borderSide: const BorderSide(color: AppColors.border),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: _border),
+        borderSide: const BorderSide(color: AppColors.border),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: _red, width: 1.4),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
       ),
     );
   }
@@ -836,7 +839,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
       maxLines: maxLines,
       enabled: enabled,
       onChanged: onChanged,
-      style: GoogleFonts.poppins(color: _navy, fontSize: 12),
+      style: GoogleFonts.poppins(color: AppColors.navy, fontSize: 12),
       decoration: _decoration(hint: hint, icon: icon),
     );
   }
@@ -863,7 +866,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             child: Text(
               text,
               style: GoogleFonts.poppins(
-                color: _muted,
+                color: AppColors.muted,
                 fontSize: 10,
                 height: 1.8,
               ),
@@ -884,7 +887,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             flex: 2,
             child: Text(
               label,
-              style: GoogleFonts.poppins(color: _muted, fontSize: 11),
+              style: GoogleFonts.poppins(color: AppColors.muted, fontSize: 11),
             ),
           ),
           const SizedBox(width: 12),
@@ -894,7 +897,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
               value.isEmpty ? 'Non renseigné' : value,
               textAlign: TextAlign.end,
               style: GoogleFonts.poppins(
-                color: _navy,
+                color: AppColors.navy,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
@@ -914,8 +917,8 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             icon: const Icon(Icons.arrow_back_rounded, size: 17),
             label: const Text('Précédent'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: _navy,
-              side: const BorderSide(color: _border),
+              foregroundColor: AppColors.navy,
+              side: const BorderSide(color: AppColors.border),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -926,7 +929,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
         ElevatedButton(
           onPressed: _next,
           style: ElevatedButton.styleFrom(
-            backgroundColor: _red,
+            backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             elevation: 0,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),

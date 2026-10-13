@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../categories/data/mock_categorie.dart';
-import '../product/data/mock_product.dart';
+import '../sidebar/categories/data/mock_categorie.dart';
+import '../sidebar/product/data/mock_product.dart';
 
 class StockStore extends ChangeNotifier {
   StockStore._();
