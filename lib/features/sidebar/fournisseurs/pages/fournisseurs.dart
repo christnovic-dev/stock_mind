@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 const Color _red = Color(0xFFF21D3D);
 const Color _navy = Color(0xFF14264B);
@@ -8,30 +9,106 @@ const Color _border = Color(0xFFE9ECF3);
 const Color _green = Color(0xFF159B72);
 
 class FournisseursPage extends StatefulWidget {
-  const FournisseursPage({super.key});
+  final String businessId;
+
+  const FournisseursPage({super.key, required this.businessId});
 
   @override
   State<FournisseursPage> createState() => _FournisseursPageState();
 }
 
 class _FournisseursPageState extends State<FournisseursPage> {
-  final List<_Fournisseur> _fournisseurs = [];
-
+  final SupabaseClient _supabase = Supabase.instance.client;
   final TextEditingController _searchController = TextEditingController();
+
+  final List<_Fournisseur> _fournisseurs = [];
 
   String _search = '';
   String _statusFilter = 'Tous';
+
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFournisseurs();
+  }
+
+  @override
+  void didUpdateWidget(covariant FournisseursPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.businessId != widget.businessId) {
+      _loadFournisseurs();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadFournisseurs() async {
+    if (widget.businessId.trim().isEmpty) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _error = 'Aucune entreprise sélectionnée.';
+        _fournisseurs.clear();
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final rows = await _supabase
+          .from('suppliers')
+          .select()
+          .eq('business_id', widget.businessId)
+          .order('created_at', ascending: false);
+
+      final result = (rows as List)
+          .map((row) => _Fournisseur.fromMap(Map<String, dynamic>.from(row)))
+          .toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _fournisseurs
+          ..clear()
+          ..addAll(result);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
 
   List<_Fournisseur> get _filteredFournisseurs {
     final query = _search.trim().toLowerCase();
 
     return _fournisseurs.where((f) {
-      final matchesSearch =
-          f.nom.toLowerCase().contains(query) ||
-          f.contact.toLowerCase().contains(query) ||
-          f.telephone.toLowerCase().contains(query) ||
-          f.email.toLowerCase().contains(query) ||
-          f.specialite.toLowerCase().contains(query);
+      final matchesSearch = [
+        f.nom,
+        f.contact,
+        f.telephone,
+        f.email,
+        f.specialite,
+        f.adresse,
+      ].any((value) => value.toLowerCase().contains(query));
 
       final matchesStatus =
           _statusFilter == 'Tous' ||
@@ -45,35 +122,45 @@ class _FournisseursPageState extends State<FournisseursPage> {
   int get _actifs => _fournisseurs.where((f) => f.actif).length;
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final mobile = constraints.maxWidth < 650;
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(mobile),
-            const SizedBox(height: 24),
-            _buildStats(),
-            const SizedBox(height: 26),
-            _buildDirectory(mobile),
-          ],
+        return SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(mobile),
+                const SizedBox(height: 24),
+                if (_loading)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(50),
+                      child: CircularProgressIndicator(color: _red),
+                    ),
+                  )
+                else if (_error != null)
+                  _buildError()
+                else ...[
+                  _buildStats(),
+                  const SizedBox(height: 26),
+                  _buildDirectory(mobile),
+                ],
+              ],
+            ),
+          ),
         );
       },
     );
   }
 
   Widget _buildHeader(bool mobile) {
-    final title = Column(
+    final title = const Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: const [
+      children: [
         Text(
           'Gestion des fournisseurs',
           style: TextStyle(
@@ -100,7 +187,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
         if (mobile) title else Expanded(child: title),
         if (mobile) const SizedBox(height: 18),
         FilledButton.icon(
-          onPressed: () => _openDialog(),
+          onPressed: _loading || _saving ? null : () => _openDialog(),
           icon: const Icon(Icons.add_business_rounded, size: 19),
           label: const Text('Ajouter un fournisseur'),
           style: FilledButton.styleFrom(
@@ -113,6 +200,44 @@ class _FournisseursPageState extends State<FournisseursPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildError() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline_rounded, color: _red, size: 32),
+          const SizedBox(height: 12),
+          const Text(
+            'Impossible de charger les fournisseurs',
+            style: TextStyle(
+              color: _navy,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SelectableText(
+            _error ?? 'Erreur inconnue.',
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: _loadFournisseurs,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Réessayer'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -245,7 +370,9 @@ class _FournisseursPageState extends State<FournisseursPage> {
 
               final search = TextField(
                 controller: _searchController,
-                onChanged: (value) => setState(() => _search = value),
+                onChanged: (value) {
+                  setState(() => _search = value);
+                },
                 decoration: InputDecoration(
                   hintText: 'Rechercher un fournisseur...',
                   hintStyle: const TextStyle(color: _muted, fontSize: 12),
@@ -285,7 +412,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
               );
 
               final filter = DropdownButtonFormField<String>(
-                value: _statusFilter,
+                initialValue: _statusFilter,
                 isExpanded: true,
                 decoration: InputDecoration(
                   labelText: 'Statut',
@@ -387,7 +514,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
             if (!hasItems) ...[
               const SizedBox(height: 18),
               OutlinedButton.icon(
-                onPressed: () => _openDialog(),
+                onPressed: _saving ? null : () => _openDialog(),
                 icon: const Icon(Icons.add_rounded),
                 label: const Text('Ajouter un fournisseur'),
                 style: OutlinedButton.styleFrom(
@@ -529,6 +656,10 @@ class _FournisseursPageState extends State<FournisseursPage> {
             const SizedBox(height: 10),
             _infoRow(Icons.email_outlined, f.email),
           ],
+          if (f.adresse.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _infoRow(Icons.location_on_outlined, f.adresse),
+          ],
           const SizedBox(height: 13),
           Row(
             children: [
@@ -563,8 +694,9 @@ class _FournisseursPageState extends State<FournisseursPage> {
   Widget _avatar(_Fournisseur f, {double size = 38}) {
     final words = f.nom.trim().split(RegExp(r'\s+'));
     final initials = words
+        .where((word) => word.isNotEmpty)
         .take(2)
-        .map((word) => word.isNotEmpty ? word[0].toUpperCase() : '')
+        .map((word) => word[0].toUpperCase())
         .join();
 
     return Container(
@@ -576,7 +708,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        initials,
+        initials.isEmpty ? '?' : initials,
         style: const TextStyle(
           color: _red,
           fontSize: 12,
@@ -630,10 +762,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
             _openDialog(fournisseur: f);
             break;
           case 'toggle':
-            setState(() => f.actif = !f.actif);
-            _showMessage(
-              f.actif ? 'Fournisseur réactivé.' : 'Fournisseur désactivé.',
-            );
+            _toggleFournisseur(f);
             break;
           case 'delete':
             _confirmDelete(f);
@@ -683,6 +812,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
 
   Future<void> _openDialog({_Fournisseur? fournisseur}) async {
     final formKey = GlobalKey<FormState>();
+
     final nom = TextEditingController(text: fournisseur?.nom ?? '');
     final contact = TextEditingController(text: fournisseur?.contact ?? '');
     final telephone = TextEditingController(text: fournisseur?.telephone ?? '');
@@ -691,11 +821,13 @@ class _FournisseursPageState extends State<FournisseursPage> {
       text: fournisseur?.specialite ?? '',
     );
     final adresse = TextEditingController(text: fournisseur?.adresse ?? '');
+
     bool actif = fournisseur?.actif ?? true;
 
     try {
       await showDialog<void>(
         context: context,
+        barrierDismissible: !_saving,
         builder: (dialogContext) {
           return StatefulBuilder(
             builder: (context, setDialogState) {
@@ -749,12 +881,14 @@ class _FournisseursPageState extends State<FournisseursPage> {
                             keyboardType: TextInputType.emailAddress,
                             validator: (value) {
                               final v = value?.trim() ?? '';
+
                               if (v.isNotEmpty &&
                                   !RegExp(
                                     r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
                                   ).hasMatch(v)) {
                                 return 'Adresse e-mail invalide.';
                               }
+
                               return null;
                             },
                           ),
@@ -794,7 +928,9 @@ class _FournisseursPageState extends State<FournisseursPage> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
+                    onPressed: _saving
+                        ? null
+                        : () => Navigator.pop(dialogContext),
                     child: const Text(
                       'Annuler',
                       style: TextStyle(color: _muted),
@@ -805,44 +941,38 @@ class _FournisseursPageState extends State<FournisseursPage> {
                       backgroundColor: _red,
                       foregroundColor: Colors.white,
                     ),
-                    onPressed: () {
-                      if (!formKey.currentState!.validate()) return;
+                    onPressed: _saving
+                        ? null
+                        : () async {
+                            if (!formKey.currentState!.validate()) {
+                              return;
+                            }
 
-                      setState(() {
-                        if (fournisseur == null) {
-                          _fournisseurs.add(
-                            _Fournisseur(
-                              nom: nom.text.trim(),
-                              contact: contact.text.trim(),
-                              telephone: telephone.text.trim(),
-                              email: email.text.trim(),
-                              specialite: specialite.text.trim(),
-                              adresse: adresse.text.trim(),
+                            final success = await _saveFournisseur(
+                              id: fournisseur?.id,
+                              nom: nom.text,
+                              contact: contact.text,
+                              telephone: telephone.text,
+                              email: email.text,
+                              specialite: specialite.text,
+                              adresse: adresse.text,
                               actif: actif,
-                            ),
-                          );
-                        } else {
-                          fournisseur
-                            ..nom = nom.text.trim()
-                            ..contact = contact.text.trim()
-                            ..telephone = telephone.text.trim()
-                            ..email = email.text.trim()
-                            ..specialite = specialite.text.trim()
-                            ..adresse = adresse.text.trim()
-                            ..actif = actif;
-                        }
-                      });
+                            );
 
-                      Navigator.pop(dialogContext);
-                      _showMessage(
-                        fournisseur == null
-                            ? 'Fournisseur ajouté avec succès.'
-                            : 'Fournisseur mis à jour.',
-                      );
-                    },
-                    child: Text(
-                      fournisseur == null ? 'Ajouter' : 'Enregistrer',
-                    ),
+                            if (success && dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                          },
+                    child: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(fournisseur == null ? 'Ajouter' : 'Enregistrer'),
                   ),
                 ],
               );
@@ -902,10 +1032,100 @@ class _FournisseursPageState extends State<FournisseursPage> {
     );
   }
 
+  Future<bool> _saveFournisseur({
+    required String? id,
+    required String nom,
+    required String contact,
+    required String telephone,
+    required String email,
+    required String specialite,
+    required String adresse,
+    required bool actif,
+  }) async {
+    if (_saving) return false;
+
+    setState(() => _saving = true);
+
+    try {
+      final data = <String, dynamic>{
+        'business_id': widget.businessId,
+        'name': nom.trim(),
+        'contact_person': contact.trim(),
+        'phone': telephone.trim(),
+        'email': email.trim(),
+        'specialite': specialite.trim(),
+        'address': adresse.trim(),
+        'is_active': actif,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+
+      if (id == null) {
+        await _supabase.from('suppliers').insert(data);
+      } else {
+        data.remove('business_id');
+
+        await _supabase
+            .from('suppliers')
+            .update(data)
+            .eq('id', id)
+            .eq('business_id', widget.businessId);
+      }
+
+      await _loadFournisseurs();
+
+      if (!mounted) return false;
+
+      _showMessage(
+        id == null
+            ? 'Fournisseur ajouté avec succès.'
+            : 'Fournisseur mis à jour.',
+      );
+
+      return true;
+    } catch (e) {
+      if (mounted) {
+        _showMessage('Erreur de sauvegarde : $e');
+      }
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _toggleFournisseur(_Fournisseur f) async {
+    if (f.id == null || _saving) return;
+
+    final newStatus = !f.actif;
+
+    try {
+      await _supabase
+          .from('suppliers')
+          .update({
+            'is_active': newStatus,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', f.id!)
+          .eq('business_id', widget.businessId);
+
+      await _loadFournisseurs();
+
+      if (!mounted) return;
+
+      _showMessage(
+        newStatus ? 'Fournisseur réactivé.' : 'Fournisseur désactivé.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Erreur de modification : $e');
+    }
+  }
+
   Future<void> _confirmDelete(_Fournisseur fournisseur) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: Colors.white,
         title: const Text(
           'Supprimer ce fournisseur ?',
@@ -917,7 +1137,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Annuler'),
           ),
           FilledButton(
@@ -925,16 +1145,37 @@ class _FournisseursPageState extends State<FournisseursPage> {
               backgroundColor: _red,
               foregroundColor: Colors.white,
             ),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Supprimer'),
           ),
         ],
       ),
     );
 
-    if (confirmed == true && mounted) {
-      setState(() => _fournisseurs.remove(fournisseur));
+    if (confirmed != true || !mounted) return;
+
+    final id = fournisseur.id;
+
+    if (id == null) {
+      _showMessage('Identifiant du fournisseur introuvable.');
+      return;
+    }
+
+    try {
+      await _supabase
+          .from('suppliers')
+          .delete()
+          .eq('id', id)
+          .eq('business_id', widget.businessId);
+
+      await _loadFournisseurs();
+
+      if (!mounted) return;
+
       _showMessage('Fournisseur supprimé.');
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Erreur de suppression : $e');
     }
   }
 
@@ -948,6 +1189,7 @@ class _FournisseursPageState extends State<FournisseursPage> {
 }
 
 class _Fournisseur {
+  final String? id;
   String nom;
   String contact;
   String telephone;
@@ -957,6 +1199,7 @@ class _Fournisseur {
   bool actif;
 
   _Fournisseur({
+    this.id,
     required this.nom,
     required this.contact,
     required this.telephone,
@@ -965,6 +1208,19 @@ class _Fournisseur {
     required this.adresse,
     this.actif = true,
   });
+
+  factory _Fournisseur.fromMap(Map<String, dynamic> map) {
+    return _Fournisseur(
+      id: map['id']?.toString(),
+      nom: map['name']?.toString() ?? '',
+      contact: map['contact_person']?.toString() ?? '',
+      telephone: map['phone']?.toString() ?? '',
+      email: map['email']?.toString() ?? '',
+      specialite: map['specialite']?.toString() ?? '',
+      adresse: map['address']?.toString() ?? '',
+      actif: map['is_active'] as bool? ?? true,
+    );
+  }
 }
 
 class _Stat {
@@ -974,5 +1230,5 @@ class _Stat {
   final Color color;
   final Color background;
 
-  const _Stat(this.title, this.value, this.icon, this.color, this.background);
+  const _Stat(this.title, this.value, this.icon, this.background, this.color);
 }

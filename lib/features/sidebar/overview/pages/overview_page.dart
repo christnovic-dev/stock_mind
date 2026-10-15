@@ -16,7 +16,14 @@ import '../widget/sidebar.dart';
 import '../widget/stat_grid.dart';
 
 class OverviewPage extends StatefulWidget {
-  const OverviewPage({super.key});
+  final String businessId;
+  final String businessName;
+
+  const OverviewPage({
+    super.key,
+    required this.businessId,
+    required this.businessName,
+  });
 
   @override
   State<OverviewPage> createState() => _OverviewPageState();
@@ -96,11 +103,16 @@ class _OverviewPageState extends State<OverviewPage> {
                         child: Center(
                           child: selectedIndex == 1
                               ? ProductsPage(
-                                  key: ValueKey(selectedProductCategory),
+                                  key: ValueKey(
+                                    '${widget.businessId}_${selectedProductCategory ?? ''}',
+                                  ),
+                                  businessId: widget.businessId,
                                   initialCategory: selectedProductCategory,
                                 )
                               : selectedIndex == 2
                               ? CategoriesPage(
+                                  key: ValueKey(widget.businessId),
+                                  businessId: widget.businessId,
                                   onViewProducts: (categoryName) {
                                     setState(() {
                                       selectedProductCategory = categoryName;
@@ -109,23 +121,27 @@ class _OverviewPageState extends State<OverviewPage> {
                                   },
                                 )
                               : selectedIndex == 3
-                              ? const MaBoutiquePage()
+                              ? MaBoutiquePage(businessId: widget.businessId)
                               : selectedIndex == 4
-                              ? const MouvementsPage()
+                              ? MouvementsPage(businessId: widget.businessId)
                               : selectedIndex == 5
-                              ? const FournisseursPage()
+                              ? FournisseursPage(businessId: widget.businessId)
                               : selectedIndex == 6
-                              ? const ClientsPage()
+                              ? ClientsPage(businessId: widget.businessId)
                               : selectedIndex == 7
-                              ? const EmployesPage()
+                              ? EmployesPage(businessId: widget.businessId)
                               : selectedIndex == 8
-                              ? const RapportsPage()
+                              ? RapportsPage(
+                                  key: ValueKey(widget.businessId),
+                                  businessId: widget.businessId,
+                                )
                               : selectedIndex == 9
                               ? const AssistantIaPage()
                               : Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     _WelcomeSection(
+                                      businessName: widget.businessName,
                                       onAddProduct: () {
                                         setState(() {
                                           selectedProductCategory = null;
@@ -140,11 +156,28 @@ class _OverviewPageState extends State<OverviewPage> {
                                           'Voici ce qui se passe dans votre stock.',
                                     ),
                                     const SizedBox(height: 18),
-                                    StatsGrid(isMobile: isMobile),
+                                    StatsGrid(
+                                      isMobile: isMobile,
+                                      businessId: widget.businessId,
+                                    ),
                                     const SizedBox(height: 24),
-                                    MainAnalytics(isMobile: isMobile),
+                                    MainAnalytics(
+                                      isMobile: isMobile,
+                                      businessId: widget.businessId,
+                                    ),
                                     const SizedBox(height: 24),
-                                    BottomPanels(isMobile: isMobile),
+
+                                    BottomPanels(
+                                      isMobile: isMobile,
+                                      businessId: widget.businessId,
+                                      onViewProducts: () {
+                                        setState(() {
+                                          selectedProductCategory = null;
+                                          selectedIndex = 1;
+                                        });
+                                      },
+                                    ),
+
                                     const SizedBox(height: 28),
                                     const Center(
                                       child: Text(
@@ -345,8 +378,12 @@ class _DashboardHeader extends StatelessWidget {
 
 class _WelcomeSection extends StatelessWidget {
   final VoidCallback onAddProduct;
+  final String businessName;
 
-  const _WelcomeSection({required this.onAddProduct});
+  const _WelcomeSection({
+    required this.onAddProduct,
+    required this.businessName,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -365,9 +402,12 @@ class _WelcomeSection extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Bonjour, bienvenue 👋',
-                    style: TextStyle(fontSize: 13, color: AppColors.muted),
+                  Text(
+                    'Bienvenue dans $businessName 👋',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.muted,
+                    ),
                   ),
                   const SizedBox(height: 7),
                   const Text(

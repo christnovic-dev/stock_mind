@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../sidebar/overview/pages/overview_page.dart';
+import '../../Mes_entreprises/pages/mes_entreprises.dart';
 
 class CompanyOnboardingPage extends StatefulWidget {
   const CompanyOnboardingPage({super.key});
@@ -26,6 +27,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
   int _step = 0;
   Color _brandColor = AppColors.primary;
   bool _sameShopName = true;
+  bool _isSaving = false;
 
   final List<String> _steps = [
     'Entreprise',
@@ -105,65 +107,77 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
     );
   }
 
-  void _finish() {
-    // Les données seront enregistrées dans Supabase
-    // lors de l'étape d'intégration de la base de données.
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          icon: const Icon(
-            Icons.check_circle_rounded,
-            color: Color(0xFF16A34A),
-            size: 55,
-          ),
-          title: Text(
-            'Configuration terminée !',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.w800,
-              color: AppColors.navy,
-            ),
-          ),
-          content: Text(
-            'Votre espace ${_companyName.text.trim()} est prêt à être configuré. '
-            'La prochaine étape sera votre tableau de bord.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: 12,
-              color: AppColors.muted,
-              height: 1.8,
-            ),
-          ),
-          actions: [
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => const OverviewPage(),
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-                child: const Text('Continuer'),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+  Future<void> _finish() async {
+    if (_isSaving) return;
+
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      _showMessage('Votre session a expiré. Connectez-vous à nouveau.');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    FocusScope.of(context).unfocus();
+
+    try {
+      final colorHex = _brandColor.value
+          .toRadixString(16)
+          .padLeft(8, '0')
+          .substring(2)
+          .toUpperCase();
+
+      // Cette fonction SQL crée l'entreprise et son propriétaire
+      // dans une seule transaction.
+      await supabase.rpc(
+        'create_business_with_owner',
+        params: {
+          'p_name': _companyName.text.trim(),
+          'p_sector': _sector.text.trim(),
+          'p_phone': _phone.text.trim(),
+          'p_city': _city.text.trim(),
+          'p_address': _address.text.trim(),
+          'p_shop_name': _shopName.text.trim(),
+          'p_slug': _slug.text.trim(),
+          'p_logo_url': _logoUrl.text.trim().isEmpty
+              ? null
+              : _logoUrl.text.trim(),
+          'p_brand_color': '#$colorHex',
+        },
+      );
+
+      if (!mounted) return;
+
+      _showMessage('Entreprise créée avec succès.');
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => const MesEntreprisesPage()),
+        (route) => false,
+      );
+    } on PostgrestException catch (error) {
+      if (!mounted) return;
+      _showMessage(_friendlySupabaseError(error));
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(
+        'Impossible de créer l’entreprise. Vérifiez votre connexion puis réessayez.',
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  String _friendlySupabaseError(PostgrestException error) {
+    final message = error.message.toLowerCase();
+
+    if (message.contains('businesses_slug_key') ||
+        message.contains('idx') && message.contains('slug')) {
+      return 'Cette adresse de boutique est déjà utilisée. Choisissez-en une autre.';
+    }
+    if (message.contains('create_business_with_owner')) {
+      return 'La fonction SQL de création est introuvable. Exécutez le script SQL indiqué dans les instructions.';
+    }
+    return 'Erreur Supabase : ${error.message}';
   }
 
   @override
@@ -927,7 +941,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           ),
         const Spacer(),
         ElevatedButton(
-          onPressed: _next,
+          onPressed: _isSaving ? null : _next,
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
@@ -941,17 +955,32 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                _step == 4 ? 'Terminer' : 'Continuer',
+                _isSaving
+                    ? 'Enregistrement...'
+                    : (_step == 4 ? 'Terminer' : 'Continuer'),
                 style: GoogleFonts.poppins(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(width: 9),
-              Icon(
-                _step == 4 ? Icons.check_rounded : Icons.arrow_forward_rounded,
-                size: 17,
-              ),
+              if (_isSaving) ...[
+                const SizedBox(width: 8),
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+              ] else
+                Icon(
+                  _step == 4
+                      ? Icons.check_rounded
+                      : Icons.arrow_forward_rounded,
+                  size: 17,
+                ),
             ],
           ),
         ),

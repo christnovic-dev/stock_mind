@@ -1,56 +1,90 @@
 import 'package:flutter/material.dart';
+import 'package:stockmind/features/core/constant/app_color.dart';
 
-import '../../../data/stock_store.dart';
 import '../data/mock_product.dart';
-
-const _red = Color(0xFFF21D3D);
-const _navy = Color(0xFF14264B);
-const _muted = Color(0xFF7B8498);
-const _border = Color(0xFFE9ECF3);
-const _background = Color(0xFFF7F8FC);
+import '../services/product_services.dart';
 
 class ProductsPage extends StatefulWidget {
+  final String businessId;
   final String? initialCategory;
-  const ProductsPage({super.key, this.initialCategory});
+
+  const ProductsPage({
+    super.key,
+    required this.businessId,
+    this.initialCategory,
+  });
 
   @override
   State<ProductsPage> createState() => _ProductsPageState();
 }
 
 class _ProductsPageState extends State<ProductsPage> {
+  late final ProductService productService;
+
   String search = '';
   String categoryFilter = 'Toutes';
   String statusFilter = 'Tous';
 
-  List<String> get categories =>
-      StockStore.instance.categories.map((category) => category.name).toList();
+  List<StockProduct> products = [];
+  List<Map<String, dynamic>> categoryRows = [];
 
-  final StockStore store = StockStore.instance;
+  bool isLoading = true;
+  String? loadError;
 
-  List<StockProduct> get products => store.products;
+  List<String> get categories => [
+    'Sans catégorie',
+    ...categoryRows.map((c) => c['name'] as String),
+  ];
 
   @override
   void initState() {
     super.initState();
 
-    if (widget.initialCategory != null &&
-        StockStore.instance.categories.any(
-          (category) => category.name == widget.initialCategory,
-        )) {
+    productService = ProductService(businessId: widget.businessId);
+
+    if (widget.initialCategory != null) {
       categoryFilter = widget.initialCategory!;
     }
 
-    store.addListener(_onStoreChanged);
+    _loadData();
   }
 
-  void _onStoreChanged() {
-    if (mounted) setState(() {});
-  }
+  Future<void> _loadData() async {
+    if (!mounted) return;
 
-  @override
-  void dispose() {
-    store.removeListener(_onStoreChanged);
-    super.dispose();
+    setState(() {
+      isLoading = true;
+      loadError = null;
+    });
+
+    try {
+      final loadedCategories = await productService.getCategories();
+
+      final loadedProducts = await productService.getProducts();
+
+      if (!mounted) return;
+
+      setState(() {
+        categoryRows = loadedCategories;
+        products = loadedProducts;
+
+        if (widget.initialCategory != null &&
+            categories.contains(widget.initialCategory)) {
+          categoryFilter = widget.initialCategory!;
+        } else if (!categories.contains(categoryFilter)) {
+          categoryFilter = 'Toutes';
+        }
+
+        isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+        loadError = e.toString();
+      });
+    }
   }
 
   List<StockProduct> get filteredProducts {
@@ -80,7 +114,23 @@ class _ProductsPageState extends State<ProductsPage> {
 
     if (result == null || !mounted) return;
 
-    store.saveProduct(result);
+    try {
+      await productService.saveProduct(result, categoryName: result.category);
+
+      await _loadData();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Produit enregistré avec succès.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de l’enregistrement : $e')),
+      );
+    }
   }
 
   Future<void> deleteProduct(StockProduct product) async {
@@ -95,7 +145,7 @@ class _ProductsPageState extends State<ProductsPage> {
             child: const Text('Annuler'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: _red),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Supprimer'),
           ),
@@ -103,13 +153,70 @@ class _ProductsPageState extends State<ProductsPage> {
       ),
     );
 
-    if (confirmed == true && mounted) {
-      store.removeProduct(product.id);
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await productService.deleteProduct(product.id);
+
+      await _loadData();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Produit supprimé avec succès.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la suppression : $e')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (loadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_outlined,
+                size: 42,
+                color: AppColors.muted,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Impossible de charger les produits.',
+                style: TextStyle(
+                  color: AppColors.navy,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                loadError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.muted),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _loadData,
+                child: const Text('Réessayer'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final visible = filteredProducts;
 
     return Column(
@@ -118,7 +225,7 @@ class _ProductsPageState extends State<ProductsPage> {
         const Text(
           'Gestion des produits',
           style: TextStyle(
-            color: _navy,
+            color: AppColors.navy,
             fontSize: 25,
             fontWeight: FontWeight.w800,
             letterSpacing: -0.7,
@@ -127,7 +234,7 @@ class _ProductsPageState extends State<ProductsPage> {
         const SizedBox(height: 7),
         const Text(
           'Consultez, recherchez et gérez les produits de votre stock.',
-          style: TextStyle(color: _muted, fontSize: 13),
+          style: TextStyle(color: AppColors.muted, fontSize: 13),
         ),
         const SizedBox(height: 22),
 
@@ -135,6 +242,7 @@ class _ProductsPageState extends State<ProductsPage> {
         LayoutBuilder(
           builder: (context, constraints) {
             final columns = constraints.maxWidth < 600 ? 2 : 4;
+
             final width = (constraints.maxWidth - (columns - 1) * 12) / columns;
 
             final stats = [
@@ -171,17 +279,17 @@ class _ProductsPageState extends State<ProductsPage> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: _border),
+                      border: Border.all(color: AppColors.border),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(stat.$3, color: _red, size: 21),
+                        Icon(stat.$3, color: AppColors.primary, size: 21),
                         const SizedBox(height: 12),
                         Text(
                           stat.$2,
                           style: const TextStyle(
-                            color: _navy,
+                            color: AppColors.navy,
                             fontSize: 24,
                             fontWeight: FontWeight.w800,
                           ),
@@ -189,7 +297,10 @@ class _ProductsPageState extends State<ProductsPage> {
                         const SizedBox(height: 4),
                         Text(
                           stat.$1,
-                          style: const TextStyle(color: _muted, fontSize: 11),
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                          ),
                         ),
                       ],
                     ),
@@ -207,19 +318,21 @@ class _ProductsPageState extends State<ProductsPage> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: _border),
+            border: Border.all(color: AppColors.border),
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 650;
 
               final searchField = TextField(
-                onChanged: (value) => setState(() => search = value),
+                onChanged: (value) {
+                  setState(() => search = value);
+                },
                 decoration: InputDecoration(
                   hintText: 'Rechercher un produit ou une référence...',
                   prefixIcon: const Icon(Icons.search_rounded),
                   filled: true,
-                  fillColor: _background,
+                  fillColor: AppColors.background,
                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -232,8 +345,8 @@ class _ProductsPageState extends State<ProductsPage> {
                 value: categoryFilter,
                 isExpanded: true,
                 decoration: _filterDecoration('Catégorie'),
-                items: ['Toutes', ...categories].map((value) {
-                  return DropdownMenuItem(
+                items: ['Toutes', ...categories].toSet().map((value) {
+                  return DropdownMenuItem<String>(
                     value: value,
                     child: Text(value, overflow: TextOverflow.ellipsis),
                   );
@@ -252,7 +365,7 @@ class _ProductsPageState extends State<ProductsPage> {
                 items: ['Tous', 'Disponible', 'Stock faible', 'Rupture'].map((
                   value,
                 ) {
-                  return DropdownMenuItem(
+                  return DropdownMenuItem<String>(
                     value: value,
                     child: Text(value, overflow: TextOverflow.ellipsis),
                   );
@@ -297,7 +410,7 @@ class _ProductsPageState extends State<ProductsPage> {
               child: Text(
                 'Liste des produits',
                 style: TextStyle(
-                  color: _navy,
+                  color: AppColors.navy,
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
                 ),
@@ -305,13 +418,13 @@ class _ProductsPageState extends State<ProductsPage> {
             ),
             Text(
               '${visible.length} résultat(s)',
-              style: const TextStyle(color: _muted, fontSize: 12),
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
             ),
             const SizedBox(width: 12),
             FilledButton.icon(
               onPressed: () => openProductForm(),
               style: FilledButton.styleFrom(
-                backgroundColor: _red,
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 15,
@@ -328,13 +441,13 @@ class _ProductsPageState extends State<ProductsPage> {
         ),
         const SizedBox(height: 14),
 
-        // Tableau adaptatif : défilement horizontal sur petit écran.
+        // Tableau des produits
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: _border),
+            border: Border.all(color: AppColors.border),
           ),
           child: visible.isEmpty
               ? const Padding(
@@ -342,14 +455,17 @@ class _ProductsPageState extends State<ProductsPage> {
                   child: Center(
                     child: Text(
                       'Aucun produit ne correspond à votre recherche.',
-                      style: TextStyle(color: _muted),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.muted),
                     ),
                   ),
                 )
               : SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
-                    headingRowColor: WidgetStateProperty.all(_background),
+                    headingRowColor: WidgetStateProperty.all(
+                      AppColors.background,
+                    ),
                     columnSpacing: 28,
                     horizontalMargin: 20,
                     columns: const [
@@ -370,7 +486,7 @@ class _ProductsPageState extends State<ProductsPage> {
                               child: Text(
                                 product.name,
                                 style: const TextStyle(
-                                  color: _navy,
+                                  color: AppColors.navy,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -402,7 +518,7 @@ class _ProductsPageState extends State<ProductsPage> {
                                   icon: const Icon(
                                     Icons.delete_outline_rounded,
                                     size: 19,
-                                    color: _red,
+                                    color: AppColors.primary,
                                   ),
                                 ),
                               ],
@@ -424,7 +540,7 @@ InputDecoration _filterDecoration(String label) {
   return InputDecoration(
     labelText: label,
     filled: true,
-    fillColor: _background,
+    fillColor: AppColors.background,
     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -444,7 +560,7 @@ class _StatusBadge extends StatelessWidget {
         ? const Color(0xFF14A579)
         : status == 'Stock faible'
         ? const Color(0xFFE9A23B)
-        : _red;
+        : AppColors.primary;
 
     final background = status == 'Disponible'
         ? const Color(0xFFE4F8F0)
@@ -482,6 +598,7 @@ class _ProductFormDialog extends StatefulWidget {
 
 class _ProductFormDialogState extends State<_ProductFormDialog> {
   final formKey = GlobalKey<FormState>();
+
   late final TextEditingController nameController;
   late final TextEditingController referenceController;
   late final TextEditingController priceController;
@@ -495,18 +612,26 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
     super.initState();
 
     final product = widget.product;
+
     nameController = TextEditingController(text: product?.name ?? '');
+
     referenceController = TextEditingController(text: product?.reference ?? '');
+
     priceController = TextEditingController(
       text: product == null ? '' : product.price.toString(),
     );
+
     quantityController = TextEditingController(
       text: product == null ? '0' : '${product.quantity}',
     );
+
     minimumController = TextEditingController(
       text: product == null ? '5' : '${product.minimumQuantity}',
     );
-    category = product?.category ?? widget.categories.first;
+
+    category = widget.categories.contains(product?.category)
+        ? product!.category
+        : 'Sans catégorie';
   }
 
   @override
@@ -523,6 +648,7 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
     if (value == null || value.trim().isEmpty) {
       return 'Ce champ est obligatoire';
     }
+
     return null;
   }
 
@@ -531,7 +657,16 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
       return 'Ce champ est obligatoire';
     }
 
-    final parsed = integer ? int.tryParse(value) : double.tryParse(value);
+    final normalized = value.trim().replaceAll(',', '.');
+
+    if (integer && normalized.contains('.')) {
+      return 'Entrez un nombre entier';
+    }
+
+    final num? parsed = integer
+        ? int.tryParse(normalized)
+        : double.tryParse(normalized);
+
     if (parsed == null || parsed < 0) {
       return 'Entrez une valeur valide';
     }
@@ -544,7 +679,10 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
     return AlertDialog(
       title: Text(
         widget.product == null ? 'Ajouter un produit' : 'Modifier le produit',
-        style: const TextStyle(color: _navy, fontWeight: FontWeight.w800),
+        style: const TextStyle(
+          color: AppColors.navy,
+          fontWeight: FontWeight.w800,
+        ),
       ),
       content: SizedBox(
         width: 460,
@@ -570,11 +708,16 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
                   value: category,
                   isExpanded: true,
                   decoration: _filterDecoration('Catégorie'),
-                  items: widget.categories.map((value) {
-                    return DropdownMenuItem(value: value, child: Text(value));
+                  items: widget.categories.toSet().map((value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value, overflow: TextOverflow.ellipsis),
+                    );
                   }).toList(),
                   onChanged: (value) {
-                    if (value != null) setState(() => category = value);
+                    if (value != null) {
+                      setState(() => category = value);
+                    }
                   },
                 ),
                 const SizedBox(height: 12),
@@ -611,17 +754,20 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
           child: const Text('Annuler'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: _red),
+          style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
           onPressed: () {
             if (!formKey.currentState!.validate()) return;
 
             final old = widget.product;
+
             final product = StockProduct(
-              id: old?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+              id: old?.id ?? '',
               name: nameController.text.trim(),
               reference: referenceController.text.trim(),
               category: category,
-              price: double.parse(priceController.text.trim()),
+              price: double.parse(
+                priceController.text.trim().replaceAll(',', '.'),
+              ),
               quantity: int.parse(quantityController.text.trim()),
               minimumQuantity: int.parse(minimumController.text.trim()),
             );

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 const Color _red = Color(0xFFF21D3D);
 const Color _navy = Color(0xFF14264B);
@@ -8,45 +10,533 @@ const Color _border = Color(0xFFE9ECF3);
 const Color _green = Color(0xFF159B72);
 
 class EmployesPage extends StatefulWidget {
-  const EmployesPage({super.key});
+  final String businessId;
+
+  const EmployesPage({super.key, required this.businessId});
 
   @override
   State<EmployesPage> createState() => _EmployesPageState();
 }
 
 class _EmployesPageState extends State<EmployesPage> {
-  final List<_Employe> _employes = [];
-
+  final SupabaseClient _supabase = Supabase.instance.client;
   final TextEditingController _searchController = TextEditingController();
 
+  List<Map<String, dynamic>> _members = [];
+  List<Map<String, dynamic>> _invitations = [];
+
   String _search = '';
-  String _statusFilter = 'Tous';
+  String _roleFilter = 'Tous';
+  bool _loading = true;
+  bool _busy = false;
 
-  List<_Employe> get _filteredEmployes {
-    return _employes.where((employe) {
-      final query = _search.toLowerCase().trim();
+  String? get _currentUserId => _supabase.auth.currentUser?.id;
 
-      final matchesSearch =
-          employe.nom.toLowerCase().contains(query) ||
-          employe.poste.toLowerCase().contains(query) ||
-          employe.email.toLowerCase().contains(query) ||
-          employe.telephone.toLowerCase().contains(query);
+  Map<String, dynamic>? get _currentMember {
+    for (final member in _members) {
+      if (member['user_id']?.toString() == _currentUserId) {
+        return member;
+      }
+    }
+    return null;
+  }
 
-      final matchesStatus =
-          _statusFilter == 'Tous' ||
-          (_statusFilter == 'Actifs' && employe.actif) ||
-          (_statusFilter == 'Inactifs' && !employe.actif);
+  bool get _isOwner => _currentMember?['role'] == 'owner';
 
-      return matchesSearch && matchesStatus;
+  List<Map<String, dynamic>> get _filteredMembers {
+    final query = _search.toLowerCase().trim();
+
+    return _members.where((member) {
+      final name = (member['full_name'] ?? '').toString().toLowerCase();
+      final email = (member['email'] ?? '').toString().toLowerCase();
+      final role = (member['role'] ?? '').toString();
+
+      final matchesSearch = name.contains(query) || email.contains(query);
+
+      final matchesRole = _roleFilter == 'Tous' || role == _roleFilter;
+
+      return matchesSearch && matchesRole;
     }).toList();
   }
 
-  int get _actifs => _employes.where((e) => e.actif).length;
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
+  void didUpdateWidget(covariant EmployesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.businessId != widget.businessId) {
+      _loadData();
+    }
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    if (widget.businessId.isEmpty) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    try {
+      final result = await _supabase.rpc(
+        'list_business_members',
+        params: {'p_business_id': widget.businessId},
+      );
+
+      final members = (result as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+
+      final current = _currentUserId;
+
+      debugPrint('========== STOCKMIND EMPLOYÉS ==========');
+      debugPrint('Business ID : ${widget.businessId}');
+      debugPrint('Utilisateur connecté : $current');
+      debugPrint('Membres retournés par le RPC : $members');
+      debugPrint('=========================================');
+
+      final currentMember = members.where(
+        (member) => member['user_id']?.toString() == current,
+      );
+
+      final isOwner =
+          currentMember.isNotEmpty && currentMember.first['role'] == 'owner';
+
+      debugPrint(
+        'Rôle détecté pour moi : '
+        '${currentMember.isNotEmpty ? currentMember.first['role'] : 'INTROUVABLE'}',
+      );
+      debugPrint('isOwner : $isOwner');
+
+      List<Map<String, dynamic>> invitations = [];
+
+      // Seul le propriétaire consulte et gère les invitations.
+      if (isOwner) {
+        final invitationResult = await _supabase
+            .from('invitations')
+            .select('id, email, role, status, created_at, expires_at, token')
+            .eq('business_id', widget.businessId)
+            .eq('status', 'pending')
+            .order('created_at', ascending: false);
+
+        invitations = (invitationResult as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _members = members;
+        _invitations = invitations;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() => _loading = false);
+      _showMessage('Impossible de charger les membres : $error');
+    }
+  }
+
+  String _roleLabel(String? role) {
+    switch (role) {
+      case 'owner':
+        return 'Propriétaire';
+      case 'admin':
+        return 'Administrateur';
+      case 'stock_manager':
+        return 'Gestionnaire de stock';
+      case 'employee':
+        return 'Employé';
+      default:
+        return role ?? 'Non défini';
+    }
+  }
+
+  String _displayName(Map<String, dynamic> member) {
+    final name = (member['full_name'] ?? '').toString().trim();
+    if (name.isNotEmpty) return name;
+
+    final email = (member['email'] ?? '').toString().trim();
+    if (email.isNotEmpty) return email;
+
+    return 'Membre StockMind';
+  }
+
+  List<String> get _availableRoles => const [
+    'admin',
+    'stock_manager',
+    'employee',
+  ];
+
+  Future<void> _openInvitationDialog() async {
+    if (!_isOwner) {
+      _showMessage('Seul le propriétaire peut inviter des membres.');
+      return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+    final emailController = TextEditingController();
+    String selectedRole = 'employee';
+
+    final shouldReload = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        bool sending = false;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: const Text(
+                'Inviter un membre',
+                style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
+              ),
+              content: SizedBox(
+                width: 420,
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'La personne devra se connecter avec cette adresse e-mail pour accepter l’invitation.',
+                          style: TextStyle(color: _muted, fontSize: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      TextFormField(
+                        controller: emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: _inputDecoration(
+                          'Adresse e-mail',
+                          Icons.email_outlined,
+                        ),
+                        validator: (value) {
+                          final email = value?.trim() ?? '';
+
+                          if (email.isEmpty) {
+                            return 'Saisissez une adresse e-mail.';
+                          }
+
+                          if (!RegExp(
+                            r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                          ).hasMatch(email)) {
+                            return 'Adresse e-mail invalide.';
+                          }
+
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 15),
+                      DropdownButtonFormField<String>(
+                        value: selectedRole,
+                        isExpanded: true,
+                        decoration: _inputDecoration(
+                          'Rôle attribué',
+                          Icons.admin_panel_settings_outlined,
+                        ),
+                        items: _availableRoles.map((role) {
+                          return DropdownMenuItem(
+                            value: role,
+                            child: Text(
+                              _roleLabel(role),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => selectedRole = value);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: sending
+                      ? null
+                      : () => Navigator.pop(dialogContext, false),
+                  child: const Text('Annuler', style: TextStyle(color: _muted)),
+                ),
+                FilledButton.icon(
+                  onPressed: sending
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+
+                          setDialogState(() => sending = true);
+
+                          try {
+                            final result = await _supabase.rpc(
+                              'create_business_invitation',
+                              params: {
+                                'p_business_id': widget.businessId,
+                                'p_email': emailController.text
+                                    .trim()
+                                    .toLowerCase(),
+                                'p_role': selectedRole,
+                              },
+                            );
+
+                            final token = result.toString();
+
+                            if (!dialogContext.mounted) return;
+
+                            Navigator.pop(dialogContext, true);
+
+                            await _showInvitationLink(token);
+                          } catch (error) {
+                            setDialogState(() => sending = false);
+
+                            if (!dialogContext.mounted) return;
+
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Impossible de créer l’invitation : $error',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                  icon: sending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded, size: 17),
+                  label: Text(sending ? 'Envoi...' : 'Créer l’invitation'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _red,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    emailController.dispose();
+
+    if (shouldReload == true && mounted) {
+      await _loadData();
+    }
+  }
+
+  Future<void> _showInvitationLink(String token) async {
+    // URL publique de StockMind sur GitHub Pages.
+    const String baseUrl = 'https://christnovic-dev.github.io/stock_mind/';
+
+    // Construit le lien public avec le token Supabase existant.
+    final uri = Uri.parse(baseUrl).replace(queryParameters: {'invite': token});
+
+    final link = uri.toString();
+
+    debugPrint('========== INVITATION STOCKMIND ==========');
+    debugPrint('Lien généré : $link');
+    debugPrint('==========================================');
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text(
+          'Invitation créée',
+          style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
+        ),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Copiez ce lien et envoyez-le à la personne invitée.',
+                style: TextStyle(color: _muted, fontSize: 13),
+              ),
+              const SizedBox(height: 14),
+              SelectableText(
+                link,
+                style: const TextStyle(color: _navy, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Le lien expire après 7 jours. La personne doit utiliser '
+                'le compte associé à l’adresse e-mail invitée.',
+                style: TextStyle(color: _muted, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Fermer'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: link));
+
+              if (!dialogContext.mounted) return;
+
+              Navigator.pop(dialogContext);
+              _showMessage('Lien public copié dans le presse-papiers.');
+            },
+            icon: const Icon(Icons.copy_rounded, size: 17),
+            label: const Text('Copier le lien'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _changeRole(Map<String, dynamic> member, String role) async {
+    final userId = member['user_id']?.toString();
+
+    if (!_isOwner || userId == null) return;
+
+    try {
+      await _supabase.rpc(
+        'change_business_member_role',
+        params: {
+          'p_business_id': widget.businessId,
+          'p_member_user_id': userId,
+          'p_role': role,
+        },
+      );
+
+      _showMessage('Rôle modifié avec succès.');
+      await _loadData();
+    } catch (error) {
+      _showMessage('Impossible de modifier le rôle : $error');
+    }
+  }
+
+  Future<void> _removeMember(Map<String, dynamic> member) async {
+    final userId = member['user_id']?.toString();
+
+    if (!_isOwner || userId == null) return;
+
+    final name = _displayName(member);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text(
+          'Retirer ce membre ?',
+          style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          '$name ne sera plus membre de cette entreprise.',
+          style: const TextStyle(color: _muted, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Retirer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _supabase.rpc(
+        'remove_business_member',
+        params: {
+          'p_business_id': widget.businessId,
+          'p_member_user_id': userId,
+        },
+      );
+
+      _showMessage('Membre retiré de l’entreprise.');
+      await _loadData();
+    } catch (error) {
+      _showMessage('Impossible de retirer ce membre : $error');
+    }
+  }
+
+  Future<void> _cancelInvitation(Map<String, dynamic> invitation) async {
+    if (!_isOwner) return;
+
+    final id = invitation['id']?.toString();
+    if (id == null) return;
+
+    try {
+      await _supabase.rpc(
+        'cancel_business_invitation',
+        params: {'p_invitation_id': id},
+      );
+
+      _showMessage('Invitation annulée.');
+      await _loadData();
+    } catch (error) {
+      _showMessage('Impossible d’annuler l’invitation : $error');
+    }
+  }
+
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: _muted, fontSize: 12),
+      prefixIcon: Icon(icon, color: _muted, size: 19),
+      filled: true,
+      fillColor: _background,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(11),
+        borderSide: const BorderSide(color: _border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(11),
+        borderSide: const BorderSide(color: _border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(11),
+        borderSide: const BorderSide(color: _red),
+      ),
+    );
   }
 
   @override
@@ -55,14 +545,27 @@ class _EmployesPageState extends State<EmployesPage> {
       builder: (context, constraints) {
         final mobile = constraints.maxWidth < 650;
 
+        if (_loading) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(40),
+              child: CircularProgressIndicator(color: _red),
+            ),
+          );
+        }
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(mobile),
             const SizedBox(height: 24),
-            _buildStats(mobile),
-            const SizedBox(height: 26),
-            _buildEmployeeSection(mobile),
+            _buildStats(),
+            const SizedBox(height: 24),
+            _buildMemberSection(mobile),
+            if (_isOwner) ...[
+              const SizedBox(height: 24),
+              _buildInvitationSection(mobile),
+            ],
           ],
         );
       },
@@ -91,7 +594,7 @@ class _EmployesPageState extends State<EmployesPage> {
               ),
               SizedBox(height: 7),
               Text(
-                'Organisez votre équipe et gérez ses informations.',
+                'Organisez votre équipe et gérez les accès.',
                 style: TextStyle(color: _muted, fontSize: 13),
               ),
             ],
@@ -112,50 +615,51 @@ class _EmployesPageState extends State<EmployesPage> {
                 ),
                 SizedBox(height: 7),
                 Text(
-                  'Organisez votre équipe et gérez ses informations.',
+                  'Organisez votre équipe et gérez les accès.',
                   style: TextStyle(color: _muted, fontSize: 13),
                 ),
               ],
             ),
           ),
         if (mobile) const SizedBox(height: 18),
-        FilledButton.icon(
-          onPressed: () => _openEmployeDialog(),
-          icon: const Icon(Icons.person_add_alt_1_rounded, size: 19),
-          label: const Text('Ajouter un employé'),
-          style: FilledButton.styleFrom(
-            backgroundColor: _red,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(11),
+        if (_isOwner)
+          FilledButton.icon(
+            onPressed: _busy ? null : _openInvitationDialog,
+            icon: const Icon(Icons.person_add_alt_1_rounded, size: 19),
+            label: const Text('Inviter un membre'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _red,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(11),
+              ),
             ),
           ),
-        ),
       ],
     );
   }
 
-  Widget _buildStats(bool mobile) {
+  Widget _buildStats() {
     final cards = [
       _StatData(
-        title: 'Total employés',
-        value: '${_employes.length}',
+        title: 'Membres',
+        value: '${_members.length}',
         icon: Icons.groups_rounded,
         color: const Color(0xFF5276E8),
         background: const Color(0xFFEDF1FF),
       ),
       _StatData(
-        title: 'Employés actifs',
-        value: '$_actifs',
-        icon: Icons.verified_user_outlined,
+        title: 'Administrateurs',
+        value: '${_members.where((m) => m['role'] == 'admin').length}',
+        icon: Icons.admin_panel_settings_outlined,
         color: _green,
         background: const Color(0xFFE5F7F0),
       ),
       _StatData(
-        title: 'Employés inactifs',
-        value: '${_employes.length - _actifs}',
-        icon: Icons.person_off_outlined,
+        title: 'Invitations en attente',
+        value: '${_invitations.length}',
+        icon: Icons.mark_email_unread_outlined,
         color: _red,
         background: const Color(0xFFFFE9ED),
       ),
@@ -233,7 +737,7 @@ class _EmployesPageState extends State<EmployesPage> {
     );
   }
 
-  Widget _buildEmployeeSection(bool mobile) {
+  Widget _buildMemberSection(bool mobile) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(mobile ? 15 : 22),
@@ -255,247 +759,149 @@ class _EmployesPageState extends State<EmployesPage> {
           ),
           const SizedBox(height: 5),
           const Text(
-            'Consultez et gérez les membres de votre équipe.',
+            'Les membres ayant accès à cette entreprise.',
             style: TextStyle(color: _muted, fontSize: 12),
           ),
-          const SizedBox(height: 20),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 520;
-
-              final search = TextField(
-                controller: _searchController,
-                onChanged: (value) => setState(() => _search = value),
-                decoration: InputDecoration(
-                  hintText: 'Rechercher un employé...',
-                  hintStyle: const TextStyle(color: _muted, fontSize: 12),
-                  prefixIcon: const Icon(
-                    Icons.search_rounded,
-                    color: _muted,
-                    size: 20,
-                  ),
+          const SizedBox(height: 18),
+          TextField(
+            controller: _searchController,
+            onChanged: (value) => setState(() => _search = value),
+            decoration:
+                _inputDecoration(
+                  'Rechercher par nom ou e-mail',
+                  Icons.search_rounded,
+                ).copyWith(
                   suffixIcon: _search.isNotEmpty
                       ? IconButton(
-                          tooltip: 'Effacer la recherche',
                           onPressed: () {
                             _searchController.clear();
                             setState(() => _search = '');
                           },
-                          icon: const Icon(Icons.close_rounded, size: 18),
+                          icon: const Icon(Icons.close_rounded),
                         )
                       : null,
-                  filled: true,
-                  fillColor: _background,
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 13,
-                    horizontal: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _red),
-                  ),
                 ),
-              );
-
-              final filter = DropdownButtonFormField<String>(
-                value: _statusFilter,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Statut',
-                  labelStyle: const TextStyle(color: _muted, fontSize: 12),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _roleFilter,
+            isExpanded: true,
+            decoration: _inputDecoration('Filtrer par rôle', Icons.filter_list),
+            items: [
+              const DropdownMenuItem(
+                value: 'Tous',
+                child: Text('Tous les rôles'),
+              ),
+              ...const ['owner', 'admin', 'stock_manager', 'employee'].map(
+                (role) => DropdownMenuItem(
+                  value: role,
+                  child: Text(_roleLabel(role)),
                 ),
-                items: const [
-                  DropdownMenuItem(value: 'Tous', child: Text('Tous')),
-                  DropdownMenuItem(value: 'Actifs', child: Text('Actifs')),
-                  DropdownMenuItem(value: 'Inactifs', child: Text('Inactifs')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _statusFilter = value);
-                  }
-                },
-              );
-
-              if (compact) {
-                return Column(
-                  children: [search, const SizedBox(height: 12), filter],
-                );
-              }
-
-              return Row(
-                children: [
-                  Expanded(flex: 3, child: search),
-                  const SizedBox(width: 12),
-                  Expanded(flex: 1, child: filter),
-                ],
-              );
+              ),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _roleFilter = value);
             },
           ),
-          const SizedBox(height: 20),
-          if (_filteredEmployes.isEmpty)
-            _buildEmptyState()
+          const SizedBox(height: 18),
+          if (_filteredMembers.isEmpty)
+            _emptyState(
+              title: _members.isEmpty
+                  ? 'Aucun membre trouvé'
+                  : 'Aucun résultat',
+              message: _members.isEmpty
+                  ? 'Les membres de cette entreprise apparaîtront ici.'
+                  : 'Essayez un autre terme ou un autre rôle.',
+              icon: Icons.groups_outlined,
+            )
           else if (mobile)
-            ..._filteredEmployes.map(_buildEmployeeCard)
+            ..._filteredMembers.map(_buildMemberCard)
           else
-            _buildEmployeeTable(),
+            _buildMemberTable(),
         ],
       ),
     );
   }
 
-  Widget _buildEmptyState() {
-    final hasEmployees = _employes.isNotEmpty;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
-      child: Column(
-        children: [
-          Container(
-            width: 62,
-            height: 62,
-            decoration: const BoxDecoration(
-              color: Color(0xFFFFE9ED),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.groups_outlined, color: _red, size: 29),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            hasEmployees
-                ? 'Aucun résultat trouvé'
-                : 'Aucun employé pour le moment',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: _navy,
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 7),
-          Text(
-            hasEmployees
-                ? 'Essayez un autre nom ou modifiez les filtres.'
-                : 'Ajoutez les membres de votre équipe pour commencer.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: _muted, fontSize: 12),
-          ),
-          if (!hasEmployees) ...[
-            const SizedBox(height: 18),
-            OutlinedButton.icon(
-              onPressed: () => _openEmployeDialog(),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Ajouter le premier employé'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _red,
-                side: const BorderSide(color: _red),
-              ),
-            ),
-          ],
+  Widget _buildMemberTable() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(_background),
+        headingTextStyle: const TextStyle(
+          color: _muted,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+        dataTextStyle: const TextStyle(color: _navy, fontSize: 12),
+        columnSpacing: 24,
+        columns: const [
+          DataColumn(label: Text('MEMBRE')),
+          DataColumn(label: Text('RÔLE')),
+          DataColumn(label: Text('DATE D’ARRIVÉE')),
+          DataColumn(label: Text('ACTIONS')),
         ],
-      ),
-    );
-  }
+        rows: _filteredMembers.map((member) {
+          final isCurrent = member['user_id']?.toString() == _currentUserId;
+          final isMemberOwner = member['role'] == 'owner';
 
-  Widget _buildEmployeeTable() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: constraints.maxWidth),
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(_background),
-              headingTextStyle: const TextStyle(
-                color: _muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-              dataTextStyle: const TextStyle(color: _navy, fontSize: 12),
-              horizontalMargin: 12,
-              columnSpacing: 24,
-              columns: const [
-                DataColumn(label: Text('EMPLOYÉ')),
-                DataColumn(label: Text('POSTE')),
-                DataColumn(label: Text('TÉLÉPHONE')),
-                DataColumn(label: Text('STATUT')),
-                DataColumn(label: Text('ACTIONS')),
-              ],
-              rows: _filteredEmployes.map((employe) {
-                return DataRow(
-                  cells: [
-                    DataCell(
-                      SizedBox(
-                        width: 170,
-                        child: Row(
+          return DataRow(
+            cells: [
+              DataCell(
+                SizedBox(
+                  width: 220,
+                  child: Row(
+                    children: [
+                      _avatar(_displayName(member)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _avatar(employe),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    employe.nom,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  if (employe.email.isNotEmpty)
-                                    Text(
-                                      employe.email,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: _muted,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                ],
+                            Text(
+                              _displayName(member),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              (member['email'] ?? '').toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _muted,
+                                fontSize: 10,
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                    DataCell(Text(employe.poste)),
-                    DataCell(Text(employe.telephone)),
-                    DataCell(_statusBadge(employe.actif)),
-                    DataCell(_actionMenu(employe)),
-                  ],
-                );
-              }).toList(),
-            ),
-          ),
-        );
-      },
+                    ],
+                  ),
+                ),
+              ),
+              DataCell(_roleBadge(member['role']?.toString())),
+              DataCell(Text(_formatDate(member['joined_at']?.toString()))),
+              DataCell(
+                _memberActions(
+                  member,
+                  canManage: _isOwner && !isMemberOwner && !isCurrent,
+                ),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
     );
   }
 
-  Widget _buildEmployeeCard(_Employe employe) {
+  Widget _buildMemberCard(Map<String, dynamic> member) {
+    final isCurrent = member['user_id']?.toString() == _currentUserId;
+    final isMemberOwner = member['role'] == 'owner';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
@@ -505,17 +911,18 @@ class _EmployesPageState extends State<EmployesPage> {
         border: Border.all(color: _border),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _avatar(employe, size: 45),
+              _avatar(_displayName(member), size: 45),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      employe.nom,
+                      _displayName(member),
                       style: const TextStyle(
                         color: _navy,
                         fontWeight: FontWeight.w700,
@@ -524,30 +931,38 @@ class _EmployesPageState extends State<EmployesPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      employe.poste,
-                      style: const TextStyle(color: _muted, fontSize: 12),
+                      (member['email'] ?? '').toString(),
+                      style: const TextStyle(color: _muted, fontSize: 11),
                     ),
                   ],
                 ),
               ),
-              _actionMenu(employe),
+              _memberActions(
+                member,
+                canManage: _isOwner && !isMemberOwner && !isCurrent,
+              ),
             ],
           ),
           const Divider(height: 24, color: _border),
-          _infoRow(Icons.phone_outlined, employe.telephone),
-          if (employe.email.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _infoRow(Icons.email_outlined, employe.email),
-          ],
-          const SizedBox(height: 13),
+          Row(
+            children: [
+              const Text('Rôle', style: TextStyle(color: _muted, fontSize: 12)),
+              const Spacer(),
+              _roleBadge(member['role']?.toString()),
+            ],
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               const Text(
-                'Statut',
+                'Membre depuis',
                 style: TextStyle(color: _muted, fontSize: 12),
               ),
               const Spacer(),
-              _statusBadge(employe.actif),
+              Text(
+                _formatDate(member['joined_at']?.toString()),
+                style: const TextStyle(color: _navy, fontSize: 12),
+              ),
             ],
           ),
         ],
@@ -555,24 +970,221 @@ class _EmployesPageState extends State<EmployesPage> {
     );
   }
 
-  Widget _infoRow(IconData icon, String value) {
-    return Row(
-      children: [
-        Icon(icon, color: _muted, size: 17),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Text(
-            value.isEmpty ? 'Non renseigné' : value,
-            style: const TextStyle(color: _muted, fontSize: 12),
+  Widget _memberActions(
+    Map<String, dynamic> member, {
+    required bool canManage,
+  }) {
+    if (!canManage) {
+      return const SizedBox.shrink();
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Actions',
+      icon: const Icon(Icons.more_horiz_rounded, color: _muted),
+      onSelected: (value) async {
+        if (value == 'role') {
+          await _openRoleDialog(member);
+        } else if (value == 'remove') {
+          await _removeMember(member);
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: 'role',
+          child: Row(
+            children: [
+              Icon(Icons.manage_accounts_outlined, color: _navy, size: 18),
+              SizedBox(width: 10),
+              Text('Modifier le rôle'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'remove',
+          child: Row(
+            children: [
+              Icon(Icons.person_remove_outlined, color: _red, size: 18),
+              SizedBox(width: 10),
+              Text('Retirer le membre', style: TextStyle(color: _red)),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _avatar(_Employe employe, {double size = 38}) {
-    final initials = employe.nom.trim().split(RegExp(r'\s+'));
-    final label = initials
+  Future<void> _openRoleDialog(Map<String, dynamic> member) async {
+    String selectedRole = member['role']?.toString() ?? 'employee';
+
+    final role = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: Colors.white,
+          title: const Text(
+            'Modifier le rôle',
+            style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
+          ),
+          content: DropdownButtonFormField<String>(
+            value: selectedRole,
+            isExpanded: true,
+            decoration: _inputDecoration('Nouveau rôle', Icons.security),
+            items: _availableRoles.map((value) {
+              return DropdownMenuItem(
+                value: value,
+                child: Text(_roleLabel(value)),
+              );
+            }).toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setDialogState(() => selectedRole = value);
+              }
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: _red,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, selectedRole),
+              child: const Text('Enregistrer'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (role != null && role != member['role'] && mounted) {
+      await _changeRole(member, role);
+    }
+  }
+
+  Widget _buildInvitationSection(bool mobile) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(mobile ? 15 : 22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Invitations en attente',
+            style: TextStyle(
+              color: _navy,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Les personnes invitées qui n’ont pas encore rejoint votre équipe.',
+            style: TextStyle(color: _muted, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          if (_invitations.isEmpty)
+            _emptyState(
+              title: 'Aucune invitation en attente',
+              message: 'Les invitations créées apparaîtront ici.',
+              icon: Icons.mark_email_read_outlined,
+            )
+          else
+            ..._invitations.map(_buildInvitationCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInvitationCard(Map<String, dynamic> invitation) {
+    final email = (invitation['email'] ?? '').toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.mail_outline_rounded, color: _red, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  email,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '${_roleLabel(invitation['role']?.toString())} · Expire le ${_formatDate(invitation['expires_at']?.toString())}',
+                  style: const TextStyle(color: _muted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Annuler l’invitation',
+            onPressed: () => _cancelInvitation(invitation),
+            icon: const Icon(Icons.cancel_outlined, color: _red),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState({
+    required String title,
+    required String message,
+    required IconData icon,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
+        child: Column(
+          children: [
+            Icon(icon, color: _red, size: 38),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: _navy,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _muted, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _avatar(String name, {double size = 38}) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    final initials = parts
         .take(2)
         .map((part) => part.isNotEmpty ? part[0].toUpperCase() : '')
         .join();
@@ -586,7 +1198,7 @@ class _EmployesPageState extends State<EmployesPage> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        label,
+        initials.isEmpty ? 'M' : initials,
         style: const TextStyle(
           color: _red,
           fontWeight: FontWeight.w800,
@@ -596,9 +1208,19 @@ class _EmployesPageState extends State<EmployesPage> {
     );
   }
 
-  Widget _statusBadge(bool actif) {
-    final color = actif ? _green : _muted;
-    final background = actif
+  Widget _roleBadge(String? role) {
+    final isOwner = role == 'owner';
+    final isAdmin = role == 'admin';
+
+    final color = isOwner
+        ? const Color(0xFF5276E8)
+        : isAdmin
+        ? _green
+        : _navy;
+
+    final background = isOwner
+        ? const Color(0xFFEDF1FF)
+        : isAdmin
         ? const Color(0xFFE5F7F0)
         : const Color(0xFFF0F1F5);
 
@@ -608,324 +1230,28 @@ class _EmployesPageState extends State<EmployesPage> {
         color: background,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            actif ? 'Actif' : 'Inactif',
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _actionMenu(_Employe employe) {
-    return PopupMenuButton<String>(
-      tooltip: 'Actions',
-      icon: const Icon(Icons.more_horiz_rounded, color: _muted),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      onSelected: (value) {
-        switch (value) {
-          case 'edit':
-            _openEmployeDialog(employe: employe);
-            break;
-          case 'toggle':
-            setState(() => employe.actif = !employe.actif);
-            _showMessage(
-              employe.actif ? 'Employé réactivé.' : 'Employé désactivé.',
-            );
-            break;
-          case 'delete':
-            _confirmDelete(employe);
-            break;
-        }
-      },
-      itemBuilder: (context) => [
-        const PopupMenuItem(
-          value: 'edit',
-          child: Row(
-            children: [
-              Icon(Icons.edit_outlined, size: 18, color: _navy),
-              SizedBox(width: 10),
-              Text('Modifier'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'toggle',
-          child: Row(
-            children: [
-              Icon(
-                employe.actif
-                    ? Icons.person_off_outlined
-                    : Icons.person_outline_rounded,
-                size: 18,
-                color: _navy,
-              ),
-              const SizedBox(width: 10),
-              Text(employe.actif ? 'Désactiver' : 'Réactiver'),
-            ],
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'delete',
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline_rounded, size: 18, color: _red),
-              SizedBox(width: 10),
-              Text('Supprimer', style: TextStyle(color: _red)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _openEmployeDialog({_Employe? employe}) async {
-    final formKey = GlobalKey<FormState>();
-    final nomController = TextEditingController(text: employe?.nom ?? '');
-    final posteController = TextEditingController(text: employe?.poste ?? '');
-    final telephoneController = TextEditingController(
-      text: employe?.telephone ?? '',
-    );
-    final emailController = TextEditingController(text: employe?.email ?? '');
-    bool actif = employe?.actif ?? true;
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              title: Text(
-                employe == null ? 'Ajouter un employé' : 'Modifier l’employé',
-                style: const TextStyle(
-                  color: _navy,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              content: SizedBox(
-                width: 420,
-                child: SingleChildScrollView(
-                  child: Form(
-                    key: formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _formField(
-                          controller: nomController,
-                          label: 'Nom complet',
-                          icon: Icons.person_outline_rounded,
-                          required: true,
-                        ),
-                        const SizedBox(height: 14),
-                        _formField(
-                          controller: posteController,
-                          label: 'Poste / Fonction',
-                          icon: Icons.work_outline_rounded,
-                          required: true,
-                        ),
-                        const SizedBox(height: 14),
-                        _formField(
-                          controller: telephoneController,
-                          label: 'Téléphone',
-                          icon: Icons.phone_outlined,
-                          keyboardType: TextInputType.phone,
-                        ),
-                        const SizedBox(height: 14),
-                        _formField(
-                          controller: emailController,
-                          label: 'Adresse e-mail',
-                          icon: Icons.email_outlined,
-                          keyboardType: TextInputType.emailAddress,
-                          validator: (value) {
-                            final email = value?.trim() ?? '';
-                            if (email.isNotEmpty &&
-                                !RegExp(
-                                  r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                                ).hasMatch(email)) {
-                              return 'Adresse e-mail invalide.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 8),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          activeThumbColor: _red,
-                          title: const Text(
-                            'Employé actif',
-                            style: TextStyle(
-                              color: _navy,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          subtitle: const Text(
-                            'Indique si cette personne fait partie de l’équipe active.',
-                            style: TextStyle(color: _muted, fontSize: 11),
-                          ),
-                          value: actif,
-                          onChanged: (value) {
-                            setDialogState(() => actif = value);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Annuler', style: TextStyle(color: _muted)),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    if (!formKey.currentState!.validate()) return;
-
-                    final nom = nomController.text.trim();
-                    final poste = posteController.text.trim();
-
-                    setState(() {
-                      if (employe == null) {
-                        _employes.add(
-                          _Employe(
-                            nom: nom,
-                            poste: poste,
-                            telephone: telephoneController.text.trim(),
-                            email: emailController.text.trim(),
-                            actif: actif,
-                          ),
-                        );
-                      } else {
-                        employe
-                          ..nom = nom
-                          ..poste = poste
-                          ..telephone = telephoneController.text.trim()
-                          ..email = emailController.text.trim()
-                          ..actif = actif;
-                      }
-                    });
-
-                    Navigator.pop(dialogContext);
-                    _showMessage(
-                      employe == null
-                          ? 'Employé ajouté avec succès.'
-                          : 'Informations mises à jour.',
-                    );
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _red,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: Text(employe == null ? 'Ajouter' : 'Enregistrer'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    nomController.dispose();
-    posteController.dispose();
-    telephoneController.dispose();
-    emailController.dispose();
-  }
-
-  Widget _formField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    bool required = false,
-    TextInputType? keyboardType,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      style: const TextStyle(color: _navy, fontSize: 13),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(color: _muted, fontSize: 12),
-        prefixIcon: Icon(icon, size: 19, color: _muted),
-        filled: true,
-        fillColor: _background,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(11),
-          borderSide: const BorderSide(color: _border),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(11),
-          borderSide: const BorderSide(color: _border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(11),
-          borderSide: const BorderSide(color: _red),
+      child: Text(
+        _roleLabel(role),
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
         ),
       ),
-      validator:
-          validator ??
-          (value) {
-            if (required && (value == null || value.trim().isEmpty)) {
-              return 'Ce champ est obligatoire.';
-            }
-            return null;
-          },
     );
   }
 
-  Future<void> _confirmDelete(_Employe employe) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: const Text(
-          'Supprimer cet employé ?',
-          style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
-        ),
-        content: Text(
-          'Voulez-vous supprimer ${employe.nom} de la liste ?',
-          style: const TextStyle(color: _muted, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: _red,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
-    );
+  String _formatDate(String? value) {
+    if (value == null || value.isEmpty) return '—';
 
-    if (confirmed == true && mounted) {
-      setState(() => _employes.remove(employe));
-      _showMessage('Employé supprimé.');
-    }
+    final date = DateTime.tryParse(value);
+    if (date == null) return '—';
+
+    final local = date.toLocal();
+
+    return '${local.day.toString().padLeft(2, '0')}/'
+        '${local.month.toString().padLeft(2, '0')}/'
+        '${local.year}';
   }
 
   void _showMessage(String message) {
@@ -935,22 +1261,6 @@ class _EmployesPageState extends State<EmployesPage> {
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
-}
-
-class _Employe {
-  String nom;
-  String poste;
-  String telephone;
-  String email;
-  bool actif;
-
-  _Employe({
-    required this.nom,
-    required this.poste,
-    required this.telephone,
-    required this.email,
-    this.actif = true,
-  });
 }
 
 class _StatData {

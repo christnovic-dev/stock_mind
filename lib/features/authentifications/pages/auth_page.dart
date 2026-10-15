@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:stockmind/features/Mes_entreprises/pages/mes_entreprises.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
-
-import '../../onboarding/pages/company_onboarding_page.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 enum AuthMode { login, signUp }
 
@@ -76,14 +76,159 @@ class _AuthPageState extends State<AuthPage> {
       return;
     }
 
-    if (_isLogin) {
-      _showMessage('La connexion Supabase sera intégrée à la prochaine étape.');
+    setState(() => _isLoading = true);
+
+    final supabase = Supabase.instance.client;
+    final email = _emailController.text.trim().toLowerCase();
+    final password = _passwordController.text;
+
+    try {
+      if (_isLogin) {
+        // Connexion avec Supabase Auth.
+        final response = await supabase.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+
+        final user = response.user;
+        if (user == null) {
+          _showMessage('Impossible de récupérer votre compte. Réessayez.');
+          return;
+        }
+
+        // Crée le profil s'il n'existe pas encore.
+        // Le mot de passe n'est jamais enregistré dans public.profiles.
+        final metadataName = user.userMetadata?['full_name'] as String?;
+        final profileName = (metadataName?.trim().isNotEmpty ?? false)
+            ? metadataName!.trim()
+            : (user.email?.split('@').first ?? 'Utilisateur');
+
+        await supabase
+            .from('profiles')
+            .upsert(
+              {'id': user.id, 'full_name': profileName},
+              onConflict: 'id',
+              ignoreDuplicates: true,
+            );
+
+        if (!mounted) return;
+        _showMessage('Connexion réussie. Bienvenue sur StockMind !');
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(builder: (_) => const MesEntreprisesPage()),
+        );
+      } else {
+        // Création du compte. Supabase Auth gère le mot de passe.
+        final response = await supabase.auth.signUp(
+          email: email,
+          password: password,
+          data: {'full_name': _nameController.text.trim()},
+        );
+
+        final user = response.user;
+        if (user == null) {
+          _showMessage(
+            'La création du compte n’a pas abouti. Vérifiez vos informations.',
+          );
+          return;
+        }
+
+        // Si la confirmation e-mail est désactivée, une session est créée
+        // et l'utilisateur peut créer son profil immédiatement.
+        // Si elle est activée, le profil sera créé à sa première connexion.
+        if (response.session != null) {
+          await supabase
+              .from('profiles')
+              .upsert(
+                {'id': user.id, 'full_name': _nameController.text.trim()},
+                onConflict: 'id',
+                ignoreDuplicates: true,
+              );
+
+          if (!mounted) return;
+          _showMessage('Compte créé avec succès.');
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(builder: (_) => const MesEntreprisesPage()),
+          );
+        } else {
+          if (!mounted) return;
+          _showMessage(
+            'Compte créé ! Consultez votre e-mail pour confirmer votre adresse, '
+            'puis connectez-vous.',
+          );
+          setState(() {
+            _mode = AuthMode.login;
+            _passwordController.clear();
+            _confirmPasswordController.clear();
+          });
+        }
+      }
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      _showMessage(_friendlyAuthError(error.message));
+    } on PostgrestException catch (error) {
+      if (!mounted) return;
+      _showMessage(
+        'Authentification réussie, mais le profil n’a pas pu être enregistré. '
+        'Vérifiez la table profiles et ses règles RLS. (${error.message})',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(
+        'Une erreur est survenue. Vérifiez votre connexion et réessayez.',
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _friendlyAuthError(String message) {
+    final text = message.toLowerCase();
+
+    if (text.contains('invalid login credentials')) {
+      return 'Adresse e-mail ou mot de passe incorrect.';
+    }
+    if (text.contains('email not confirmed')) {
+      return 'Veuillez confirmer votre adresse e-mail avant de vous connecter.';
+    }
+    if (text.contains('user already registered')) {
+      return 'Un compte existe déjà avec cette adresse e-mail.';
+    }
+    if (text.contains('password should be at least')) {
+      return 'Le mot de passe est trop court.';
+    }
+    if (text.contains('rate limit') || text.contains('too many requests')) {
+      return 'Trop de tentatives. Veuillez patienter avant de réessayer.';
+    }
+
+    return message;
+  }
+
+  Future<void> _resetPassword() async {
+    final email = _emailController.text.trim().toLowerCase();
+
+    if (email.isEmpty ||
+        !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      _showMessage('Saisissez d’abord une adresse e-mail valide.');
       return;
     }
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => const CompanyOnboardingPage()),
-    );
+    setState(() => _isLoading = true);
+
+    try {
+      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      if (!mounted) return;
+      _showMessage(
+        'Si cette adresse correspond à un compte, un e-mail de réinitialisation sera envoyé.',
+      );
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      _showMessage(_friendlyAuthError(error.message));
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Impossible d’envoyer l’e-mail. Réessayez plus tard.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _showMessage(String message) {
@@ -508,9 +653,7 @@ class _AuthPageState extends State<AuthPage> {
                   ),
                 ),
                 TextButton(
-                  onPressed: () => _showMessage(
-                    'La récupération du mot de passe sera ajoutée avec Supabase.',
-                  ),
+                  onPressed: _isLoading ? null : _resetPassword,
                   child: Text(
                     'Mot de passe oublié ?',
                     style: GoogleFonts.poppins(

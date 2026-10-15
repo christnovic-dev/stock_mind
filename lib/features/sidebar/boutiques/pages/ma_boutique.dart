@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
+import 'package:stockmind/features/sidebar/boutiques/pages/recu.dart';
 
 import '../../product/data/mock_product.dart';
+import '../../product/services/product_services.dart';
+import '../service/service_boutique.dart';
 
 class MaBoutiquePage extends StatefulWidget {
-  const MaBoutiquePage({super.key});
+  final String businessId;
+
+  const MaBoutiquePage({super.key, required this.businessId});
 
   @override
   State<MaBoutiquePage> createState() => _MaBoutiquePageState();
@@ -14,34 +19,32 @@ class MaBoutiquePage extends StatefulWidget {
 class _MaBoutiquePageState extends State<MaBoutiquePage> {
   final _formKey = GlobalKey<FormState>();
 
-  final _nameController = TextEditingController(text: 'Ma boutique');
-  final _descriptionController = TextEditingController(
-    text: 'Découvrez nos produits et passez vos commandes en ligne.',
-  );
+  final _nameController = TextEditingController();
+  final _descriptionController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
 
+  late final ProductService _productService;
+  late final BoutiqueService _boutiqueService;
+
+  List<StockProduct> _products = [];
+
   bool _editing = true;
+  bool _loading = true;
+  bool _saving = false;
 
-  String _slugify(String value) {
-    final slug = value
-        .toLowerCase()
-        .replaceAll(RegExp(r"['’]"), '')
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-        .replaceAll(RegExp(r'^-|-$'), '');
+  String? _loadError;
+  String? _savedSlug;
 
-    return slug.isEmpty ? 'ma-boutique' : slug;
-  }
+  @override
+  void initState() {
+    super.initState();
 
-  String get _publicUrl {
-    final slug = _slugify(_nameController.text);
+    _productService = ProductService(businessId: widget.businessId);
 
-    // Chemin de base de l'application Flutter Web
-    final basePath = Uri.base.path.startsWith('/stock_mind')
-        ? '/stock_mind/'
-        : '/';
+    _boutiqueService = BoutiqueService(businessId: widget.businessId);
 
-    return '${Uri.base.origin}$basePath#/boutique/$slug';
+    _loadData();
   }
 
   @override
@@ -53,19 +56,135 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
     super.dispose();
   }
 
-  void _save() {
+  String _slugify(String value) {
+    final slug = value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r"['’]"), '')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+
+    return slug.isEmpty ? 'ma-boutique' : slug;
+  }
+
+  String get _publicUrl {
+    final slug = (_savedSlug != null && _savedSlug!.isNotEmpty)
+        ? _savedSlug!
+        : _slugify(_nameController.text);
+
+    final basePath = Uri.base.path.startsWith('/stock_mind')
+        ? '/stock_mind/'
+        : '/';
+
+    return '${Uri.base.origin}$basePath#/boutique/$slug';
+  }
+
+  Future<void> _loadData() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
+
+    try {
+      final results = await Future.wait<dynamic>([
+        _boutiqueService.getBoutique(),
+        _productService.getProducts(),
+      ]);
+
+      final boutique = Map<String, dynamic>.from(results[0] as Map);
+      final products = List<StockProduct>.from(results[1] as List);
+
+      if (!mounted) return;
+
+      setState(() {
+        _nameController.text = (boutique['shop_name'] ?? boutique['name'] ?? '')
+            .toString();
+
+        _descriptionController.text = (boutique['description'] ?? '')
+            .toString();
+
+        _phoneController.text = (boutique['phone'] ?? '').toString();
+        _addressController.text = (boutique['address'] ?? '').toString();
+
+        _savedSlug = boutique['slug']?.toString();
+
+        _products = products;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _loadError = _friendlyError(e);
+      });
+    }
+  }
+
+  String _friendlyError(Object error) {
+    final message = error.toString();
+
+    if (message.contains('business_members') ||
+        message.contains('Aucune entreprise associée')) {
+      return 'Aucune entreprise n’est associée à votre compte. '
+          'Vérifiez votre adhésion dans business_members.';
+    }
+
+    if (message.contains('JWT') ||
+        message.contains('not authenticated') ||
+        message.contains('Vous devez être connecté')) {
+      return 'Votre session ne permet pas de charger la boutique. '
+          'Veuillez vous reconnecter.';
+    }
+
+    return message.replaceFirst('Exception: ', '');
+  }
+
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _editing = false);
+    setState(() => _saving = true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Informations conservées pour cette session. '
-          'La sauvegarde permanente sera ajoutée avec Supabase.',
+    try {
+      await _boutiqueService.saveBoutique(
+        shopName: _nameController.text.trim(),
+        description: _descriptionController.text.trim(),
+        phone: _phoneController.text.trim(),
+        address: _addressController.text.trim(),
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _editing = false;
+        _saving = false;
+        _savedSlug = _slugify(_nameController.text);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Les informations de votre boutique ont été enregistrées.',
+          ),
+          behavior: SnackBarBehavior.floating,
         ),
-      ),
-    );
+      );
+
+      await _loadData();
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => _saving = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors de la sauvegarde : ${_friendlyError(e)}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _copyLink() async {
@@ -75,18 +194,84 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text(
-          'Lien copié. La page publique doit encore être configurée.',
-        ),
+        content: Text('Lien de la boutique copié.'),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
+  void _openPublicStore() {
+    final slug = (_savedSlug != null && _savedSlug!.isNotEmpty)
+        ? _savedSlug!
+        : _slugify(_nameController.text);
+
+    Navigator.of(context).pushNamed('/boutique/$slug');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final products = mockProducts;
-    final available = products.where((p) => p.quantity > 0).length;
-    final totalQuantity = products.fold<int>(0, (sum, p) => sum + p.quantity);
+    if (_loading) {
+      return Container(
+        color: AppColors.background,
+        child: const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+
+    if (_loadError != null) {
+      return Container(
+        color: AppColors.background,
+        width: double.infinity,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.cloud_off_outlined,
+                    size: 48,
+                    color: AppColors.muted,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Impossible de charger votre boutique',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.navy,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _loadError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.muted, height: 1.5),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: _loadData,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Réessayer'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final available = _products.where((p) => p.quantity > 0).length;
+    final totalQuantity = _products.fold<int>(0, (sum, p) => sum + p.quantity);
 
     return Container(
       color: AppColors.background,
@@ -106,30 +291,40 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
                     const SizedBox(height: 24),
                     _buildHero(),
                     const SizedBox(height: 18),
-                    _buildStats(products.length, available, totalQuantity),
+
+                    // Statistiques du catalogue.
+                    _buildStats(_products.length, available, totalQuantity),
                     const SizedBox(height: 24),
+
+                    // NOUVEAU : gestion des commandes reçues.
+                    CommandesRecuesSection(businessId: widget.businessId),
+                    const SizedBox(height: 24),
+
+                    // Paramètres et catalogue d'origine.
                     if (wide)
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(child: _buildSettings()),
                           const SizedBox(width: 20),
-                          Expanded(child: _buildCatalog(products)),
+                          Expanded(child: _buildCatalog(_products)),
                         ],
                       )
                     else ...[
                       _buildSettings(),
                       const SizedBox(height: 20),
-                      _buildCatalog(products),
+                      _buildCatalog(_products),
                     ],
+
                     const SizedBox(height: 20),
                     _buildPublicLink(),
                     const SizedBox(height: 12),
+
                     const Text(
-                      'Mode démonstration : les informations ne sont pas '
-                      'encore sauvegardées dans une base de données. '
-                      'Le lien public et les commandes seront activés '
-                      'dans les prochaines étapes.',
+                      'Les informations et le catalogue sont chargés depuis '
+                      'Supabase. Les commandes nécessitent également une '
+                      'configuration correcte des tables et des politiques '
+                      'de sécurité Supabase.',
                       style: TextStyle(
                         color: AppColors.muted,
                         fontSize: 12,
@@ -364,7 +559,17 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
       subtitle: 'Personnalisez la présentation de votre commerce.',
       icon: Icons.tune_rounded,
       trailing: TextButton.icon(
-        onPressed: () => setState(() => _editing = !_editing),
+        onPressed: _saving
+            ? null
+            : () {
+                setState(() {
+                  if (_editing) {
+                    _loadData();
+                  } else {
+                    _editing = true;
+                  }
+                });
+              },
         icon: Icon(_editing ? Icons.close : Icons.edit_outlined, size: 17),
         label: Text(_editing ? 'Annuler' : 'Modifier'),
       ),
@@ -377,7 +582,7 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
             const SizedBox(height: 7),
             TextFormField(
               controller: _nameController,
-              enabled: _editing,
+              enabled: _editing && !_saving,
               onChanged: (_) => setState(() {}),
               validator: (value) => value == null || value.trim().isEmpty
                   ? 'Le nom est obligatoire.'
@@ -392,7 +597,7 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
             const SizedBox(height: 7),
             TextFormField(
               controller: _descriptionController,
-              enabled: _editing,
+              enabled: _editing && !_saving,
               maxLines: 3,
               decoration: _inputDecoration(
                 'Présentez votre boutique.',
@@ -404,7 +609,7 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
             const SizedBox(height: 7),
             TextFormField(
               controller: _phoneController,
-              enabled: _editing,
+              enabled: _editing && !_saving,
               keyboardType: TextInputType.phone,
               decoration: _inputDecoration(
                 'Votre numéro de téléphone',
@@ -416,7 +621,7 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
             const SizedBox(height: 7),
             TextFormField(
               controller: _addressController,
-              enabled: _editing,
+              enabled: _editing && !_saving,
               decoration: _inputDecoration(
                 'Ville, quartier, adresse...',
                 Icons.location_on_outlined,
@@ -427,9 +632,22 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: _save,
-                  icon: const Icon(Icons.save_outlined, size: 18),
-                  label: const Text('Enregistrer les informations'),
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 17,
+                          height: 17,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save_outlined, size: 18),
+                  label: Text(
+                    _saving
+                        ? 'Enregistrement...'
+                        : 'Enregistrer les informations',
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
@@ -532,8 +750,8 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
                 ),
                 const SizedBox(height: 7),
                 const Text(
-                  'Lien indicatif : la route publique doit être créée '
-                  'avant de le partager aux clients.',
+                  'Partagez ce lien pour permettre aux clients de découvrir '
+                  'votre boutique.',
                   style: TextStyle(
                     color: AppColors.muted,
                     fontSize: 11,
@@ -551,12 +769,6 @@ class _MaBoutiquePageState extends State<MaBoutiquePage> {
         ],
       ),
     );
-  }
-
-  void _openPublicStore() {
-    Navigator.of(
-      context,
-    ).pushNamed('/boutique/${_slugify(_nameController.text)}');
   }
 
   Widget _label(String text) {

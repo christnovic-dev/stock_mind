@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../service/mouvement_service.dart';
+
 const Color _red = Color(0xFFF21D3D);
 const Color _navy = Color(0xFF14264B);
 const Color _background = Color(0xFFF7F8FC);
@@ -10,26 +12,10 @@ const Color _orange = Color(0xFFE99A28);
 
 enum MovementType { entree, sortie, ajustement }
 
-class _Movement {
-  final String id;
-  final String product;
-  final MovementType type;
-  final int quantity;
-  final String reason;
-  final DateTime date;
-
-  _Movement({
-    required this.id,
-    required this.product,
-    required this.type,
-    required this.quantity,
-    required this.reason,
-    required this.date,
-  });
-}
-
 class MouvementsPage extends StatefulWidget {
-  const MouvementsPage({super.key});
+  const MouvementsPage({super.key, required this.businessId});
+
+  final String businessId;
 
   @override
   State<MouvementsPage> createState() => _MouvementsPageState();
@@ -37,68 +23,25 @@ class MouvementsPage extends StatefulWidget {
 
 class _MouvementsPageState extends State<MouvementsPage> {
   final TextEditingController _searchController = TextEditingController();
+  late final MovementService _service;
+
+  List<StockMovement> _movements = [];
+  List<MovementProduct> _products = [];
 
   String _filter = 'Tous';
   String _search = '';
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
 
-  final List<_Movement> _movements = [
-    _Movement(
-      id: 'MVT-001',
-      product: 'Casque Bluetooth',
-      type: MovementType.entree,
-      quantity: 20,
-      reason: 'Réapprovisionnement',
-      date: DateTime.now().subtract(const Duration(hours: 2)),
-    ),
-    _Movement(
-      id: 'MVT-002',
-      product: 'Chargeur USB-C',
-      type: MovementType.sortie,
-      quantity: 3,
-      reason: 'Vente',
-      date: DateTime.now().subtract(const Duration(hours: 5)),
-    ),
-    _Movement(
-      id: 'MVT-003',
-      product: 'Souris sans fil',
-      type: MovementType.ajustement,
-      quantity: 2,
-      reason: 'Correction inventaire',
-      date: DateTime.now().subtract(const Duration(days: 1)),
-    ),
-    _Movement(
-      id: 'MVT-004',
-      product: 'Clavier mécanique',
-      type: MovementType.entree,
-      quantity: 12,
-      reason: 'Nouvelle livraison',
-      date: DateTime.now().subtract(const Duration(days: 1)),
-    ),
-    _Movement(
-      id: 'MVT-005',
-      product: 'Écouteurs filaires',
-      type: MovementType.sortie,
-      quantity: 5,
-      reason: 'Vente',
-      date: DateTime.now().subtract(const Duration(days: 2)),
-    ),
-    _Movement(
-      id: 'MVT-006',
-      product: 'Chargeur USB-C',
-      type: MovementType.entree,
-      quantity: 15,
-      reason: 'Réapprovisionnement',
-      date: DateTime.now().subtract(const Duration(days: 3)),
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
 
-  final List<String> _products = [
-    'Casque Bluetooth',
-    'Chargeur USB-C',
-    'Souris sans fil',
-    'Clavier mécanique',
-    'Écouteurs filaires',
-  ];
+    _service = MovementService(businessId: widget.businessId);
+
+    _loadData();
+  }
 
   @override
   void dispose() {
@@ -106,35 +49,105 @@ class _MouvementsPageState extends State<MouvementsPage> {
     super.dispose();
   }
 
-  List<_Movement> get _filteredMovements {
+  Future<void> _loadData() async {
+    if (widget.businessId.trim().isEmpty) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _error = 'Aucune entreprise sélectionnée.';
+      });
+
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final results = await Future.wait([
+        _service.getMovements(),
+        _service.getProducts(),
+      ]);
+
+      if (!mounted) return;
+
+      setState(() {
+        _movements = results[0] as List<StockMovement>;
+        _products = results[1] as List<MovementProduct>;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  MovementType _parseType(String type) {
+    switch (type) {
+      case 'entree':
+        return MovementType.entree;
+      case 'sortie':
+        return MovementType.sortie;
+      default:
+        return MovementType.ajustement;
+    }
+  }
+
+  String _typeValue(MovementType type) {
+    switch (type) {
+      case MovementType.entree:
+        return 'entree';
+      case MovementType.sortie:
+        return 'sortie';
+      case MovementType.ajustement:
+        return 'ajustement';
+    }
+  }
+
+  List<StockMovement> get _filteredMovements {
+    final query = _search.trim().toLowerCase();
+
     return _movements.where((movement) {
+      final type = _parseType(movement.type);
+
       final matchesFilter =
           _filter == 'Tous' ||
-          (_filter == 'Entrées' && movement.type == MovementType.entree) ||
-          (_filter == 'Sorties' && movement.type == MovementType.sortie) ||
-          (_filter == 'Ajustements' &&
-              movement.type == MovementType.ajustement);
+          (_filter == 'Entrées' && type == MovementType.entree) ||
+          (_filter == 'Sorties' && type == MovementType.sortie) ||
+          (_filter == 'Ajustements' && type == MovementType.ajustement);
 
-      final query = _search.toLowerCase();
-      final matchesSearch =
-          movement.product.toLowerCase().contains(query) ||
-          movement.id.toLowerCase().contains(query) ||
-          movement.reason.toLowerCase().contains(query);
+      final searchable = [
+        movement.product,
+        movement.id,
+        movement.reason,
+        movement.counterpartyName ?? '',
+        movement.counterpartyCity ?? '',
+        movement.counterpartyPhone ?? '',
+        movement.confirmedByName ?? '',
+      ].join(' ').toLowerCase();
 
-      return matchesFilter && matchesSearch;
+      return matchesFilter && searchable.contains(query);
     }).toList()..sort((a, b) => b.date.compareTo(a.date));
   }
 
   int get _totalEntries => _movements
-      .where((m) => m.type == MovementType.entree)
+      .where((m) => _parseType(m.type) == MovementType.entree)
       .fold(0, (sum, m) => sum + m.quantity);
 
   int get _totalExits => _movements
-      .where((m) => m.type == MovementType.sortie)
+      .where((m) => _parseType(m.type) == MovementType.sortie)
       .fold(0, (sum, m) => sum + m.quantity);
 
-  int get _adjustments =>
-      _movements.where((m) => m.type == MovementType.ajustement).length;
+  int get _adjustments => _movements
+      .where((m) => _parseType(m.type) == MovementType.ajustement)
+      .length;
 
   String _formatDate(DateTime date) {
     final d = date.day.toString().padLeft(2, '0');
@@ -178,16 +191,53 @@ class _MouvementsPageState extends State<MouvementsPage> {
   }
 
   Future<void> _showAddMovementDialog() async {
-    String product = _products.first;
+    if (_products.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ajoute d’abord un produit dans ton stock.'),
+        ),
+      );
+      return;
+    }
+
+    MovementProduct selectedProduct = _products.first;
     MovementType type = MovementType.entree;
     String reason = 'Réapprovisionnement';
-    final quantityController = TextEditingController();
+    String counterpartyType = 'fournisseur';
+    String adjustmentDirection = 'entree';
 
-    final result = await showDialog<_Movement>(
+    final quantityController = TextEditingController();
+    final nameController = TextEditingController();
+    final cityController = TextEditingController();
+    final phoneController = TextEditingController();
+
+    final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final reasons = <String>[
+              if (type == MovementType.entree) ...[
+                'Réapprovisionnement',
+                'Nouvelle livraison',
+                'Retour client',
+              ],
+              if (type == MovementType.sortie) ...[
+                'Vente',
+                'Produit endommagé',
+                'Retour fournisseur',
+              ],
+              if (type == MovementType.ajustement) ...[
+                'Correction inventaire',
+                'Perte constatée',
+                'Correction administrative',
+              ],
+            ];
+
+            if (!reasons.contains(reason)) {
+              reason = reasons.first;
+            }
+
             return AlertDialog(
               backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(
@@ -202,7 +252,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
                 ),
               ),
               content: SizedBox(
-                width: 420,
+                width: 440,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -210,19 +260,25 @@ class _MouvementsPageState extends State<MouvementsPage> {
                     children: [
                       _dialogLabel('Produit'),
                       DropdownButtonFormField<String>(
-                        value: product,
+                        value: selectedProduct.id,
                         isExpanded: true,
                         decoration: _inputDecoration('Sélectionner un produit'),
                         items: _products.map((p) {
                           return DropdownMenuItem(
-                            value: p,
-                            child: Text(p, overflow: TextOverflow.ellipsis),
+                            value: p.id,
+                            child: Text(
+                              '${p.name} (stock : ${p.quantity})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           );
                         }).toList(),
                         onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() => product = value);
-                          }
+                          if (value == null) return;
+                          setDialogState(() {
+                            selectedProduct = _products.firstWhere(
+                              (p) => p.id == value,
+                            );
+                          });
                         },
                       ),
                       const SizedBox(height: 16),
@@ -245,18 +301,43 @@ class _MouvementsPageState extends State<MouvementsPage> {
                           ),
                         ],
                         onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() {
-                              type = value;
-                              reason = value == MovementType.entree
-                                  ? 'Réapprovisionnement'
-                                  : value == MovementType.sortie
-                                  ? 'Vente'
-                                  : 'Correction inventaire';
-                            });
-                          }
+                          if (value == null) return;
+                          setDialogState(() {
+                            type = value;
+                            reason = value == MovementType.entree
+                                ? 'Réapprovisionnement'
+                                : value == MovementType.sortie
+                                ? 'Vente'
+                                : 'Correction inventaire';
+                            counterpartyType = value == MovementType.entree
+                                ? 'fournisseur'
+                                : 'client';
+                          });
                         },
                       ),
+                      if (type == MovementType.ajustement) ...[
+                        const SizedBox(height: 16),
+                        _dialogLabel('Sens de la correction'),
+                        DropdownButtonFormField<String>(
+                          value: adjustmentDirection,
+                          decoration: _inputDecoration('Sens'),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'entree',
+                              child: Text('Augmenter le stock'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'sortie',
+                              child: Text('Diminuer le stock'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setDialogState(() => adjustmentDirection = value);
+                            }
+                          },
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       _dialogLabel('Quantité'),
                       TextField(
@@ -270,31 +351,76 @@ class _MouvementsPageState extends State<MouvementsPage> {
                         value: reason,
                         isExpanded: true,
                         decoration: _inputDecoration('Choisir un motif'),
-                        items:
-                            [
-                              if (type == MovementType.entree) ...[
-                                'Réapprovisionnement',
-                                'Nouvelle livraison',
-                                'Retour client',
-                              ],
-                              if (type == MovementType.sortie) ...[
-                                'Vente',
-                                'Produit endommagé',
-                                'Retour fournisseur',
-                              ],
-                              if (type == MovementType.ajustement) ...[
-                                'Correction inventaire',
-                                'Perte constatée',
-                                'Correction administrative',
-                              ],
-                            ].map((r) {
-                              return DropdownMenuItem(value: r, child: Text(r));
-                            }).toList(),
+                        items: reasons.map((r) {
+                          return DropdownMenuItem(value: r, child: Text(r));
+                        }).toList(),
                         onChanged: (value) {
                           if (value != null) {
                             setDialogState(() => reason = value);
                           }
                         },
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Tiers concerné',
+                        style: TextStyle(
+                          color: _navy,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _dialogLabel('Type de tiers'),
+                      DropdownButtonFormField<String>(
+                        value: counterpartyType,
+                        decoration: _inputDecoration('Client ou fournisseur'),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'client',
+                            child: Text('Client'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'fournisseur',
+                            child: Text('Fournisseur'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'autre',
+                            child: Text('Autre / non applicable'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => counterpartyType = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      _dialogLabel('Nom du client ou fournisseur'),
+                      TextField(
+                        controller: nameController,
+                        decoration: _inputDecoration('Nom complet'),
+                      ),
+                      const SizedBox(height: 12),
+                      _dialogLabel('Ville'),
+                      TextField(
+                        controller: cityController,
+                        decoration: _inputDecoration('Ex. Sfax'),
+                      ),
+                      const SizedBox(height: 12),
+                      _dialogLabel('Téléphone'),
+                      TextField(
+                        controller: phoneController,
+                        keyboardType: TextInputType.phone,
+                        decoration: _inputDecoration('Ex. +216 20 123 456'),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Le nom du membre qui confirme sera enregistré automatiquement.',
+                        style: TextStyle(
+                          color: _muted,
+                          fontSize: 11,
+                          height: 1.5,
+                        ),
                       ),
                     ],
                   ),
@@ -302,7 +428,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
+                  onPressed: () => Navigator.pop(dialogContext, false),
                   child: const Text('Annuler', style: TextStyle(color: _muted)),
                 ),
                 ElevatedButton(
@@ -314,33 +440,73 @@ class _MouvementsPageState extends State<MouvementsPage> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  onPressed: () {
-                    final quantity = int.tryParse(
-                      quantityController.text.trim(),
-                    );
+                  onPressed: _saving
+                      ? null
+                      : () async {
+                          final quantity = int.tryParse(
+                            quantityController.text.trim(),
+                          );
 
-                    if (quantity == null || quantity <= 0) {
-                      ScaffoldMessenger.of(dialogContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Saisis une quantité valide.'),
-                        ),
-                      );
-                      return;
-                    }
+                          if (quantity == null || quantity <= 0) {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              const SnackBar(
+                                content: Text('Saisis une quantité valide.'),
+                              ),
+                            );
+                            return;
+                          }
 
-                    Navigator.pop(
-                      dialogContext,
-                      _Movement(
-                        id: 'MVT-${DateTime.now().millisecondsSinceEpoch}',
-                        product: product,
-                        type: type,
-                        quantity: quantity,
-                        reason: reason,
-                        date: DateTime.now(),
-                      ),
-                    );
-                  },
-                  child: const Text('Enregistrer'),
+                          if (type == MovementType.sortie &&
+                              quantity > selectedProduct.quantity) {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              const SnackBar(
+                                content: Text('Stock insuffisant.'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          setState(() => _saving = true);
+
+                          try {
+                            await _service.createMovement(
+                              productId: selectedProduct.id,
+                              movementType: _typeValue(type),
+                              quantity: quantity,
+                              reason: reason,
+                              counterpartyType: counterpartyType,
+                              counterpartyName: nameController.text.trim(),
+                              counterpartyCity: cityController.text.trim(),
+                              counterpartyPhone: phoneController.text.trim(),
+                              adjustmentDirection:
+                                  type == MovementType.ajustement
+                                  ? adjustmentDirection
+                                  : null,
+                            );
+
+                            if (!mounted) return;
+                            setState(() => _saving = false);
+                            Navigator.pop(dialogContext, true);
+                          } catch (e) {
+                            if (!mounted) return;
+                            setState(() => _saving = false);
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              SnackBar(
+                                content: Text('Erreur : ${e.toString()}'),
+                              ),
+                            );
+                          }
+                        },
+                  child: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Confirmer'),
                 ),
               ],
             );
@@ -350,13 +516,15 @@ class _MouvementsPageState extends State<MouvementsPage> {
     );
 
     quantityController.dispose();
+    nameController.dispose();
+    cityController.dispose();
+    phoneController.dispose();
 
-    if (result != null && mounted) {
-      setState(() => _movements.add(result));
+    if (result == true && mounted) {
+      await _loadData();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Mouvement ajouté à la liste de démonstration.'),
-        ),
+        const SnackBar(content: Text('Mouvement enregistré avec succès.')),
       );
     }
   }
@@ -378,6 +546,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
       hintText: hint,
+      hintStyle: const TextStyle(fontSize: 12, color: _muted),
       filled: true,
       fillColor: _background,
       contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
@@ -411,13 +580,62 @@ class _MouvementsPageState extends State<MouvementsPage> {
               children: [
                 _buildHeader(compact),
                 const SizedBox(height: 25),
-                _buildStats(compact),
-                const SizedBox(height: 25),
-                _buildHistory(compact),
+                if (_loading)
+                  const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Center(
+                      child: CircularProgressIndicator(color: _red),
+                    ),
+                  )
+                else if (_error != null)
+                  _buildError()
+                else ...[
+                  _buildStats(compact),
+                  const SizedBox(height: 25),
+                  _buildHistory(compact),
+                ],
               ],
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: _red, size: 36),
+          const SizedBox(height: 12),
+          const Text(
+            'Impossible de charger les mouvements',
+            style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          SelectableText(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _loadData,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Réessayer'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -466,7 +684,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
           child: SizedBox(
             width: compact ? double.infinity : null,
             child: ElevatedButton.icon(
-              onPressed: _showAddMovementDialog,
+              onPressed: _loading || _saving ? null : _showAddMovementDialog,
               icon: const Icon(Icons.add_rounded, size: 20),
               label: const Text('Nouveau mouvement'),
               style: ElevatedButton.styleFrom(
@@ -608,7 +826,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Retrouve et filtre les opérations de stock.',
+                  'Retrouve les opérations, les tiers et les responsables.',
                   style: TextStyle(color: _muted, fontSize: 12),
                 ),
                 const SizedBox(height: 17),
@@ -616,7 +834,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
                   controller: _searchController,
                   onChanged: (value) => setState(() => _search = value),
                   decoration: InputDecoration(
-                    hintText: 'Rechercher un produit, un motif ou un ID...',
+                    hintText: 'Produit, client, ville, responsable ou ID...',
                     hintStyle: const TextStyle(color: _muted, fontSize: 12),
                     prefixIcon: const Icon(
                       Icons.search_rounded,
@@ -711,17 +929,17 @@ class _MouvementsPageState extends State<MouvementsPage> {
     );
   }
 
-  Widget _buildMovementTable(List<_Movement> items) {
+  Widget _buildMovementTable(List<StockMovement> items) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 760),
+        constraints: const BoxConstraints(minWidth: 1120),
         child: DataTable(
           horizontalMargin: 20,
-          columnSpacing: 25,
+          columnSpacing: 22,
           headingRowHeight: 48,
-          dataRowMinHeight: 68,
-          dataRowMaxHeight: 78,
+          dataRowMinHeight: 70,
+          dataRowMaxHeight: 95,
           headingTextStyle: const TextStyle(
             color: _muted,
             fontSize: 11,
@@ -732,13 +950,16 @@ class _MouvementsPageState extends State<MouvementsPage> {
             DataColumn(label: Text('TYPE')),
             DataColumn(label: Text('QUANTITÉ')),
             DataColumn(label: Text('MOTIF')),
+            DataColumn(label: Text('CLIENT / FOURNISSEUR')),
+            DataColumn(label: Text('CONFIRMÉ PAR')),
             DataColumn(label: Text('DATE')),
           ],
           rows: items.map((movement) {
-            final color = _typeColor(movement.type);
-            final sign = movement.type == MovementType.entree
+            final type = _parseType(movement.type);
+            final color = _typeColor(type);
+            final sign = type == MovementType.entree
                 ? '+'
-                : movement.type == MovementType.sortie
+                : type == MovementType.sortie
                 ? '-'
                 : '±';
 
@@ -746,7 +967,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
               cells: [
                 DataCell(
                   SizedBox(
-                    width: 165,
+                    width: 145,
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -762,8 +983,8 @@ class _MouvementsPageState extends State<MouvementsPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          movement.id.length > 14
-                              ? movement.id.substring(0, 14)
+                          movement.id.length > 12
+                              ? movement.id.substring(0, 12)
                               : movement.id,
                           style: const TextStyle(color: _muted, fontSize: 10),
                         ),
@@ -771,7 +992,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
                     ),
                   ),
                 ),
-                DataCell(_typeBadge(movement.type)),
+                DataCell(_typeBadge(type)),
                 DataCell(
                   Text(
                     '$sign${movement.quantity}',
@@ -783,9 +1004,71 @@ class _MouvementsPageState extends State<MouvementsPage> {
                   ),
                 ),
                 DataCell(
-                  Text(
-                    movement.reason,
-                    style: const TextStyle(color: _muted, fontSize: 11),
+                  SizedBox(
+                    width: 130,
+                    child: Text(
+                      movement.reason,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: _muted, fontSize: 11),
+                    ),
+                  ),
+                ),
+                DataCell(
+                  SizedBox(
+                    width: 155,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          movement.counterpartyName ?? 'Non renseigné',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _navy,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          [
+                            if ((movement.counterpartyType ?? '').isNotEmpty)
+                              movement.counterpartyType!,
+                            if ((movement.counterpartyPhone ?? '').isNotEmpty)
+                              movement.counterpartyPhone!,
+                            if ((movement.counterpartyCity ?? '').isNotEmpty)
+                              movement.counterpartyCity!,
+                          ].join(' • '),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: _muted, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                DataCell(
+                  SizedBox(
+                    width: 135,
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.verified_user_outlined,
+                          color: _green,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            movement.confirmedByName ?? 'Non renseigné',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: _navy,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 DataCell(
@@ -802,11 +1085,12 @@ class _MouvementsPageState extends State<MouvementsPage> {
     );
   }
 
-  Widget _buildMovementCard(_Movement movement) {
-    final color = _typeColor(movement.type);
-    final sign = movement.type == MovementType.entree
+  Widget _buildMovementCard(StockMovement movement) {
+    final type = _parseType(movement.type);
+    final color = _typeColor(type);
+    final sign = type == MovementType.entree
         ? '+'
-        : movement.type == MovementType.sortie
+        : type == MovementType.sortie
         ? '-'
         : '±';
 
@@ -825,7 +1109,7 @@ class _MouvementsPageState extends State<MouvementsPage> {
               color: color.withValues(alpha: 0.09),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(_typeIcon(movement.type), color: color, size: 21),
+            child: Icon(_typeIcon(type), color: color, size: 21),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -841,13 +1125,36 @@ class _MouvementsPageState extends State<MouvementsPage> {
                   ),
                 ),
                 const SizedBox(height: 7),
-                _typeBadge(movement.type),
+                _typeBadge(type),
                 const SizedBox(height: 7),
                 Text(
                   movement.reason,
                   style: const TextStyle(color: _muted, fontSize: 11),
                 ),
-                const SizedBox(height: 4),
+                if ((movement.counterpartyName ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _detailLine(
+                    Icons.person_outline_rounded,
+                    '${movement.counterpartyName}'
+                    '${(movement.counterpartyType ?? '').isEmpty ? '' : ' (${movement.counterpartyType})'}',
+                  ),
+                ],
+                if ((movement.counterpartyCity ?? '').isNotEmpty)
+                  _detailLine(
+                    Icons.location_on_outlined,
+                    movement.counterpartyCity!,
+                  ),
+                if ((movement.counterpartyPhone ?? '').isNotEmpty)
+                  _detailLine(
+                    Icons.phone_outlined,
+                    movement.counterpartyPhone!,
+                  ),
+                const SizedBox(height: 7),
+                _detailLine(
+                  Icons.verified_user_outlined,
+                  'Confirmé par : ${movement.confirmedByName ?? 'Non renseigné'}',
+                ),
+                const SizedBox(height: 5),
                 Text(
                   _formatDate(movement.date),
                   style: const TextStyle(color: _muted, fontSize: 10),
@@ -862,6 +1169,25 @@ class _MouvementsPageState extends State<MouvementsPage> {
               color: color,
               fontSize: 17,
               fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailLine(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: _muted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: _muted, fontSize: 10),
             ),
           ),
         ],

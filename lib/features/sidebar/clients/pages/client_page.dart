@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 const Color _red = Color(0xFFF21D3D);
 const Color _navy = Color(0xFF14264B);
@@ -8,18 +9,23 @@ const Color _border = Color(0xFFE9ECF3);
 const Color _green = Color(0xFF159B72);
 
 class ClientsPage extends StatefulWidget {
-  const ClientsPage({super.key});
+  final String businessId;
+
+  const ClientsPage({super.key, required this.businessId});
 
   @override
   State<ClientsPage> createState() => _ClientsPageState();
 }
 
 class _ClientsPageState extends State<ClientsPage> {
+  final SupabaseClient _supabase = Supabase.instance.client;
   final List<_Client> _clients = [];
   final TextEditingController _searchController = TextEditingController();
 
   String _search = '';
   String _statusFilter = 'Tous';
+  bool _loading = true;
+  String? _error;
 
   List<_Client> get _filteredClients {
     final query = _search.trim().toLowerCase();
@@ -44,17 +50,199 @@ class _ClientsPageState extends State<ClientsPage> {
 
   int get _nouveauxClients {
     final now = DateTime.now();
+    return _clients
+        .where(
+          (c) =>
+              c.dateCreation.year == now.year &&
+              c.dateCreation.month == now.month,
+        )
+        .length;
+  }
 
-    return _clients.where((c) {
-      return c.dateCreation.year == now.year &&
-          c.dateCreation.month == now.month;
-    }).length;
+  @override
+  void initState() {
+    super.initState();
+    _loadClients();
+  }
+
+  @override
+  void didUpdateWidget(covariant ClientsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.businessId != widget.businessId) {
+      _loadClients();
+    }
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadClients() async {
+    if (widget.businessId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Aucune entreprise sélectionnée.';
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final rows = await _supabase
+          .from('clients')
+          .select()
+          .eq('business_id', widget.businessId)
+          .order('created_at', ascending: false);
+
+      final clients = (rows as List).map((row) {
+        final data = Map<String, dynamic>.from(row);
+        return _Client(
+          id: data['id'].toString(),
+          nom: data['name']?.toString() ?? '',
+          telephone: data['phone']?.toString() ?? '',
+          email: data['email']?.toString() ?? '',
+          adresse: data['address']?.toString() ?? '',
+          dateCreation:
+              DateTime.tryParse(
+                data['created_at']?.toString() ?? '',
+              )?.toLocal() ??
+              DateTime.now(),
+          actif: data['is_active'] as bool? ?? true,
+        );
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _clients
+          ..clear()
+          ..addAll(clients);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Impossible de charger les clients : $e';
+      });
+    }
+  }
+
+  Future<bool> _saveClient({
+    _Client? client,
+    required String nom,
+    required String telephone,
+    required String email,
+    required String adresse,
+    required bool actif,
+  }) async {
+    try {
+      final data = <String, dynamic>{
+        'business_id': widget.businessId,
+        'name': nom,
+        'phone': telephone,
+        'email': email.isEmpty ? null : email,
+        'address': adresse,
+        'is_active': actif,
+      };
+
+      if (client == null) {
+        await _supabase.from('clients').insert(data);
+      } else {
+        data.remove('business_id');
+        await _supabase
+            .from('clients')
+            .update(data)
+            .eq('id', client.id)
+            .eq('business_id', widget.businessId);
+      }
+
+      await _loadClients();
+      if (!mounted) return true;
+
+      _showMessage(
+        client == null
+            ? 'Client ajouté avec succès.'
+            : 'Informations du client mises à jour.',
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        _showMessage('Erreur lors de l’enregistrement : $e');
+      }
+      return false;
+    }
+  }
+
+  Future<void> _toggleClient(_Client client) async {
+    final newStatus = !client.actif;
+
+    try {
+      await _supabase
+          .from('clients')
+          .update({'is_active': newStatus})
+          .eq('id', client.id)
+          .eq('business_id', widget.businessId);
+
+      if (!mounted) return;
+      setState(() => client.actif = newStatus);
+      _showMessage(newStatus ? 'Client réactivé.' : 'Client désactivé.');
+    } catch (e) {
+      _showMessage('Impossible de modifier le statut : $e');
+    }
+  }
+
+  Future<void> _confirmDelete(_Client client) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text(
+          'Supprimer ce client ?',
+          style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'Voulez-vous supprimer ${client.nom} du répertoire ?',
+          style: const TextStyle(color: _muted, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _supabase
+          .from('clients')
+          .delete()
+          .eq('id', client.id)
+          .eq('business_id', widget.businessId);
+
+      if (!mounted) return;
+      setState(() => _clients.removeWhere((c) => c.id == client.id));
+      _showMessage('Client supprimé.');
+    } catch (e) {
+      _showMessage('Impossible de supprimer le client : $e');
+    }
   }
 
   @override
@@ -107,7 +295,7 @@ class _ClientsPageState extends State<ClientsPage> {
         if (mobile) title else Expanded(child: title),
         if (mobile) const SizedBox(height: 18),
         FilledButton.icon(
-          onPressed: () => _openDialog(),
+          onPressed: _loading ? null : () => _openDialog(),
           icon: const Icon(Icons.person_add_alt_1_rounded, size: 19),
           label: const Text('Ajouter un client'),
           style: FilledButton.styleFrom(
@@ -246,104 +434,123 @@ class _ClientsPageState extends State<ClientsPage> {
             style: TextStyle(color: _muted, fontSize: 12),
           ),
           const SizedBox(height: 20),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 520;
-
-              final search = TextField(
-                controller: _searchController,
-                onChanged: (value) => setState(() => _search = value),
-                decoration: InputDecoration(
-                  hintText: 'Rechercher un client...',
-                  hintStyle: const TextStyle(color: _muted, fontSize: 12),
-                  prefixIcon: const Icon(
-                    Icons.search_rounded,
-                    color: _muted,
-                    size: 20,
-                  ),
-                  suffixIcon: _search.isNotEmpty
-                      ? IconButton(
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() => _search = '');
-                          },
-                          icon: const Icon(Icons.close_rounded, size: 18),
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: _background,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 13,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _red),
-                  ),
-                ),
-              );
-
-              final filter = DropdownButtonFormField<String>(
-                value: _statusFilter,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Statut',
-                  labelStyle: const TextStyle(color: _muted, fontSize: 12),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _border),
-                  ),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Tous', child: Text('Tous')),
-                  DropdownMenuItem(value: 'Actifs', child: Text('Actifs')),
-                  DropdownMenuItem(value: 'Inactifs', child: Text('Inactifs')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _statusFilter = value);
-                  }
-                },
-              );
-
-              if (compact) {
-                return Column(
-                  children: [search, const SizedBox(height: 12), filter],
-                );
-              }
-
-              return Row(
-                children: [
-                  Expanded(flex: 3, child: search),
-                  const SizedBox(width: 12),
-                  Expanded(child: filter),
-                ],
-              );
-            },
-          ),
+          _buildFilters(),
           const SizedBox(height: 20),
-          if (_filteredClients.isEmpty)
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(35),
+              child: Center(child: CircularProgressIndicator(color: _red)),
+            )
+          else if (_error != null)
+            _buildError()
+          else if (_filteredClients.isEmpty)
             _buildEmptyState()
           else if (mobile)
             ..._filteredClients.map(_buildClientCard)
           else
             _buildTable(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilters() {
+    final search = TextField(
+      controller: _searchController,
+      onChanged: (value) => setState(() => _search = value),
+      decoration: InputDecoration(
+        hintText: 'Rechercher un client...',
+        hintStyle: const TextStyle(color: _muted, fontSize: 12),
+        prefixIcon: const Icon(Icons.search_rounded, color: _muted, size: 20),
+        suffixIcon: _search.isNotEmpty
+            ? IconButton(
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _search = '');
+                },
+                icon: const Icon(Icons.close_rounded, size: 18),
+              )
+            : null,
+        filled: true,
+        fillColor: _background,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 13,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _red),
+        ),
+      ),
+    );
+
+    final filter = DropdownButtonFormField<String>(
+      value: _statusFilter,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: 'Statut',
+        labelStyle: const TextStyle(color: _muted, fontSize: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _border),
+        ),
+      ),
+      items: const [
+        DropdownMenuItem(value: 'Tous', child: Text('Tous')),
+        DropdownMenuItem(value: 'Actifs', child: Text('Actifs')),
+        DropdownMenuItem(value: 'Inactifs', child: Text('Inactifs')),
+      ],
+      onChanged: (value) {
+        if (value != null) setState(() => _statusFilter = value);
+      },
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Column(children: [search, const SizedBox(height: 12), filter]);
+        }
+        return Row(
+          children: [
+            Expanded(flex: 3, child: search),
+            const SizedBox(width: 12),
+            Expanded(child: filter),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildError() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      child: Column(
+        children: [
+          const Icon(Icons.error_outline, color: _red, size: 36),
+          const SizedBox(height: 12),
+          Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: _muted, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _loadClients,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Réessayer'),
+          ),
         ],
       ),
     );
@@ -538,7 +745,8 @@ class _ClientsPageState extends State<ClientsPage> {
     final words = client.nom.trim().split(RegExp(r'\s+'));
     final initials = words
         .take(2)
-        .map((word) => word.isNotEmpty ? word[0].toUpperCase() : '')
+        .where((word) => word.isNotEmpty)
+        .map((word) => word[0].toUpperCase())
         .join();
 
     return Container(
@@ -619,10 +827,7 @@ class _ClientsPageState extends State<ClientsPage> {
             _openDialog(client: client);
             break;
           case 'toggle':
-            setState(() => client.actif = !client.actif);
-            _showMessage(
-              client.actif ? 'Client réactivé.' : 'Client désactivé.',
-            );
+            _toggleClient(client);
             break;
           case 'delete':
             _confirmDelete(client);
@@ -677,6 +882,7 @@ class _ClientsPageState extends State<ClientsPage> {
     final email = TextEditingController(text: client?.email ?? '');
     final adresse = TextEditingController(text: client?.adresse ?? '');
     bool actif = client?.actif ?? true;
+    bool saving = false;
 
     try {
       await showDialog<void>(
@@ -754,9 +960,11 @@ class _ClientsPageState extends State<ClientsPage> {
                               ),
                             ),
                             value: actif,
-                            onChanged: (value) {
-                              setDialogState(() => actif = value);
-                            },
+                            onChanged: saving
+                                ? null
+                                : (value) {
+                                    setDialogState(() => actif = value);
+                                  },
                           ),
                         ],
                       ),
@@ -765,7 +973,9 @@ class _ClientsPageState extends State<ClientsPage> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
+                    onPressed: saving
+                        ? null
+                        : () => Navigator.pop(dialogContext),
                     child: const Text(
                       'Annuler',
                       style: TextStyle(color: _muted),
@@ -776,39 +986,38 @@ class _ClientsPageState extends State<ClientsPage> {
                       backgroundColor: _red,
                       foregroundColor: Colors.white,
                     ),
-                    onPressed: () {
-                      if (!formKey.currentState!.validate()) return;
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (!formKey.currentState!.validate()) return;
 
-                      setState(() {
-                        if (client == null) {
-                          _clients.add(
-                            _Client(
+                            setDialogState(() => saving = true);
+                            final success = await _saveClient(
+                              client: client,
                               nom: nom.text.trim(),
                               telephone: telephone.text.trim(),
                               email: email.text.trim(),
                               adresse: adresse.text.trim(),
-                              dateCreation: DateTime.now(),
                               actif: actif,
-                            ),
-                          );
-                        } else {
-                          client
-                            ..nom = nom.text.trim()
-                            ..telephone = telephone.text.trim()
-                            ..email = email.text.trim()
-                            ..adresse = adresse.text.trim()
-                            ..actif = actif;
-                        }
-                      });
+                            );
 
-                      Navigator.pop(dialogContext);
-                      _showMessage(
-                        client == null
-                            ? 'Client ajouté avec succès.'
-                            : 'Informations du client mises à jour.',
-                      );
-                    },
-                    child: Text(client == null ? 'Ajouter' : 'Enregistrer'),
+                            if (!dialogContext.mounted) return;
+                            if (success) {
+                              Navigator.pop(dialogContext);
+                            } else {
+                              setDialogState(() => saving = false);
+                            }
+                          },
+                    child: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(client == null ? 'Ajouter' : 'Enregistrer'),
                   ),
                 ],
               );
@@ -866,42 +1075,6 @@ class _ClientsPageState extends State<ClientsPage> {
     );
   }
 
-  Future<void> _confirmDelete(_Client client) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: const Text(
-          'Supprimer ce client ?',
-          style: TextStyle(color: _navy, fontWeight: FontWeight.w800),
-        ),
-        content: Text(
-          'Voulez-vous supprimer ${client.nom} du répertoire ?',
-          style: const TextStyle(color: _muted, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: _red,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      setState(() => _clients.remove(client));
-      _showMessage('Client supprimé.');
-    }
-  }
-
   String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
@@ -910,7 +1083,6 @@ class _ClientsPageState extends State<ClientsPage> {
 
   void _showMessage(String message) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
@@ -918,6 +1090,7 @@ class _ClientsPageState extends State<ClientsPage> {
 }
 
 class _Client {
+  final String id;
   String nom;
   String telephone;
   String email;
@@ -926,6 +1099,7 @@ class _Client {
   bool actif;
 
   _Client({
+    required this.id,
     required this.nom,
     required this.telephone,
     required this.email,
@@ -942,5 +1116,5 @@ class _Stat {
   final Color color;
   final Color background;
 
-  const _Stat(this.title, this.value, this.icon, this.color, this.background);
+  const _Stat(this.title, this.value, this.icon, this.background, this.color);
 }

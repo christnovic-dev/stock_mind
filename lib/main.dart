@@ -2,8 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:stockmind/features/home/pages/homepage.dart';
 import 'package:stockmind/features/sidebar/boutiques/pages/boutique_publique.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() {
+import 'features/authentifications/pages/accept_invitation.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://atjayldsrtfhwxqcelyt.supabase.co',
+    publishableKey: 'sb_publishable_a2WTUQ7oVUGMESBLT-NgZA_wAOf6Er8',
+  );
+
   runApp(const StockMindApp());
 }
 
@@ -22,16 +32,36 @@ class StockMindApp extends StatelessWidget {
   }
 
   Route<dynamic>? _generateRoute(RouteSettings settings) {
-    final uri = Uri.tryParse(settings.name ?? '/');
+    final routeName = settings.name ?? '/';
+    final uri = Uri.tryParse(routeName);
+
+    // Invitation : /?invite=JETON
+    final token = uri?.queryParameters['invite'];
+
+    if (token != null && token.isNotEmpty) {
+      return MaterialPageRoute(
+        settings: settings,
+        builder: (_) => AcceptInvitationPage(token: token),
+      );
+    }
+
     final segments = uri?.pathSegments ?? [];
 
-    // Boutique publique : /boutique/ma-boutique
+    // Boutique publique : /boutique/mon-slug
     if (segments.isNotEmpty && segments.first == 'boutique') {
       final slug = segments.length > 1 ? segments[1] : '';
+
+      if (slug.isEmpty) {
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (_) => const HomePage(),
+        );
+      }
 
       return MaterialPageRoute(
         settings: settings,
         builder: (_) => StorefrontPage(
+          storeSlug: slug,
           storeName: _formatStoreName(slug),
           description: 'Découvrez nos produits et passez votre commande.',
         ),
@@ -39,16 +69,13 @@ class StockMindApp extends StatelessWidget {
     }
 
     // Accueil StockMind
-    if (settings.name == '/' ||
-        settings.name == null ||
-        settings.name!.isEmpty) {
+    if (routeName == '/' || routeName.isEmpty) {
       return MaterialPageRoute(
         settings: settings,
         builder: (_) => const HomePage(),
       );
     }
 
-    // Route inconnue
     return MaterialPageRoute(
       settings: settings,
       builder: (_) => const HomePage(),
@@ -60,7 +87,6 @@ class StockMindApp extends StatelessWidget {
     return MaterialApp(
       title: 'StockMind',
       debugShowCheckedModeBanner: false,
-
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: Colors.white,
@@ -68,7 +94,6 @@ class StockMindApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFF21D3D)),
       ),
 
-      initialRoute: '/',
       onGenerateRoute: _generateRoute,
     );
   }
