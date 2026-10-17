@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'equipe_tache.dart';
+
 const Color _red = Color(0xFFF21D3D);
 const Color _navy = Color(0xFF14264B);
 const Color _background = Color(0xFFF7F8FC);
@@ -287,49 +289,52 @@ class _EmployesPageState extends State<EmployesPage> {
 
                           setDialogState(() => sending = true);
 
+                          final invitedEmail = emailController.text
+                              .trim()
+                              .toLowerCase();
+
                           try {
+                            // 1. Créer l'invitation dans Supabase.
                             final result = await _supabase.rpc(
                               'create_business_invitation',
                               params: {
                                 'p_business_id': widget.businessId,
-                                'p_email': emailController.text
-                                    .trim()
-                                    .toLowerCase(),
+                                'p_email': invitedEmail,
                                 'p_role': selectedRole,
                               },
                             );
 
-                            final token = result.toString();
+                            final token = result.toString().trim();
 
-                            if (!dialogContext.mounted) return;
+                            if (token.isEmpty || token == 'null') {
+                              throw Exception(
+                                'Supabase n’a pas retourné de jeton d’invitation.',
+                              );
+                            }
 
+                            if (!mounted || !dialogContext.mounted) return;
+
+                            // 2. Fermer le formulaire et retourner un résultat positif.
                             Navigator.pop(dialogContext, true);
 
+                            // 3. Afficher le lien à partager manuellement.
                             await _showInvitationLink(token);
                           } catch (error) {
+                            if (!mounted || !dialogContext.mounted) return;
+
                             setDialogState(() => sending = false);
 
-                            if (!dialogContext.mounted) return;
-
-                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
                                   'Impossible de créer l’invitation : $error',
                                 ),
+                                behavior: SnackBarBehavior.floating,
                               ),
                             );
                           }
                         },
-                  icon: sending
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.send_rounded, size: 17),
+
                   label: Text(sending ? 'Envoi...' : 'Créer l’invitation'),
                   style: FilledButton.styleFrom(
                     backgroundColor: _red,
@@ -636,6 +641,23 @@ class _EmployesPageState extends State<EmployesPage> {
               ),
             ),
           ),
+        SizedBox(width: 7),
+        OutlinedButton.icon(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => EquipeTachesPage(
+                  businessId: widget.businessId,
+                  isOwner: _isOwner,
+                  members: _members,
+                ),
+              ),
+            );
+          },
+          icon: const Icon(Icons.checklist_rounded),
+          label: const Text('Tâches de l’équipe'),
+        ),
       ],
     );
   }

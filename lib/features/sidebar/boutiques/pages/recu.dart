@@ -68,6 +68,7 @@ class _CommandesRecuesSectionState extends State<CommandesRecuesSection> {
           )
         ''')
           .eq('business_id', businessId)
+          .eq('status', 'en_attente')
           .order('created_at', ascending: false);
 
       debugPrint('Nombre de commandes reçues : ${result.length}');
@@ -305,7 +306,7 @@ class _CommandesRecuesSectionState extends State<CommandesRecuesSection> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${_orders.length} commande(s) au total',
+                      '${_orders.length} commande(s) à traiter',
                       style: const TextStyle(
                         color: AppColors.muted,
                         fontSize: 12,

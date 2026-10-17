@@ -52,7 +52,7 @@ class _MesEntreprisesPageState extends State<MesEntreprisesPage> {
           .from('business_members')
           .select(
             'business_id, user_id, role, '
-            'business:businesses(id, name, sector, city)',
+            'business:businesses(id, name, sector, city, logo_url)',
           )
           .eq('user_id', user.id);
 
@@ -64,7 +64,7 @@ class _MesEntreprisesPageState extends State<MesEntreprisesPage> {
             .from('invitations')
             .select(
               'id, token, business_id, email, role, status, expires_at, '
-              'business:businesses(id, name, sector, city)',
+              'business:businesses(id, name, sector, city, logo_url)',
             )
             .ilike('email', email)
             .eq('status', 'pending')
@@ -600,6 +600,51 @@ class _MesEntreprisesPageState extends State<MesEntreprisesPage> {
     );
   }
 
+  Widget _buildBusinessLogo(Map<String, dynamic> business) {
+    final logoUrl = _text(business['logo_url']);
+
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: logoUrl.isNotEmpty
+          ? Image.network(
+              logoUrl,
+              width: 58,
+              height: 58,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.business_rounded,
+                  color: AppColors.primary,
+                  size: 29,
+                );
+              },
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+
+                return const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              },
+            )
+          : const Icon(
+              Icons.business_rounded,
+              color: AppColors.primary,
+              size: 29,
+            ),
+    );
+  }
+
   Widget _buildBusinessCard(Map<String, dynamic> membership) {
     final business = _asMap(membership['business']) ?? {};
     final name = _text(business['name'], fallback: 'Entreprise sans nom');
@@ -632,19 +677,7 @@ class _MesEntreprisesPageState extends State<MesEntreprisesPage> {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 47,
-                    height: 47,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: .08),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.business_rounded,
-                      color: AppColors.primary,
-                      size: 25,
-                    ),
-                  ),
+                  _buildBusinessLogo(business),
                   const Spacer(),
                   Container(
                     padding: const EdgeInsets.symmetric(

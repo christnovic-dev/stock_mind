@@ -1,3 +1,4 @@
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/mock_product.dart';
@@ -10,8 +11,9 @@ class ProductService {
   final SupabaseClient _client;
   final String? _businessId;
 
-  /// Vérifie que l'utilisateur est connecté et membre
-  /// de l'entreprise sélectionnée.
+  static const String _bucket = 'product-images';
+
+  /// Vérifie que l'utilisateur connecté est membre de l'entreprise.
   Future<String> getBusinessId() async {
     final businessId = _businessId;
 
@@ -43,7 +45,6 @@ class ProductService {
     return businessId;
   }
 
-  /// Récupère les catégories de l'entreprise active.
   Future<List<Map<String, dynamic>>> getCategories() async {
     final businessId = await getBusinessId();
 
@@ -56,7 +57,6 @@ class ProductService {
     return List<Map<String, dynamic>>.from(rows);
   }
 
-  /// Récupère les produits et associe leur nom de catégorie.
   Future<List<StockProduct>> getProducts() async {
     final businessId = await getBusinessId();
 
@@ -91,19 +91,18 @@ class ProductService {
         price: (row['price'] as num).toDouble(),
         quantity: (row['quantity'] as num).toInt(),
         minimumQuantity: (row['minimum_quantity'] as num).toInt(),
+        imageUrl: row['image_url'] as String?,
       );
     }).toList();
   }
 
-  /// Crée ou modifie un produit.
+  /// Crée ou modifie le produit, puis enregistre son image si fournie.
   ///
-  /// La fonction SQL enregistre automatiquement :
-  /// - le stock initial lors d'une création ;
-  /// - l'ajustement si la quantité change ;
-  /// - l'historique des modifications de la fiche.
-  Future<void> saveProduct(
+  /// La fonction SQL existante reste responsable du stock et de l'audit.
+  Future<String> saveProduct(
     StockProduct product, {
     required String categoryName,
+    XFile? imageFile,
   }) async {
     final businessId = await getBusinessId();
 
@@ -129,13 +128,13 @@ class ProductService {
       categoryId = category['id'].toString();
     }
 
-    final productId = product.id.trim().isEmpty ? null : product.id.trim();
+    final existingId = product.id.trim().isEmpty ? null : product.id.trim();
 
-    await _client.rpc(
+    final result = await _client.rpc(
       'save_product_with_stock_movement',
       params: {
         'p_business_id': businessId,
-        'p_product_id': productId,
+        'p_product_id': existingId,
         'p_category_id': categoryId,
         'p_name': product.name.trim(),
         'p_reference': product.reference.trim(),
@@ -144,9 +143,75 @@ class ProductService {
         'p_minimum_quantity': product.minimumQuantity,
       },
     );
+
+    final productId = result.toString();
+
+    if (productId.isEmpty || productId == 'null') {
+      throw Exception(
+        'La sauvegarde du produit n’a retourné aucun identifiant.',
+      );
+    }
+
+    if (imageFile != null) {
+      await _uploadProductImage(
+        businessId: businessId,
+        productId: productId,
+        imageFile: imageFile,
+      );
+    }
+
+    return productId;
   }
 
-  /// Supprime un produit tout en conservant son historique.
+  Future<void> _uploadProductImage({
+    required String businessId,
+    required String productId,
+    required XFile imageFile,
+  }) async {
+    final bytes = await imageFile.readAsBytes();
+
+    if (bytes.isEmpty) {
+      throw Exception('Le fichier image est vide.');
+    }
+
+    final fileName = imageFile.name.toLowerCase();
+
+    final contentType =
+        imageFile.mimeType ??
+        (fileName.endsWith('.png')
+            ? 'image/png'
+            : fileName.endsWith('.webp')
+            ? 'image/webp'
+            : fileName.endsWith('.gif')
+            ? 'image/gif'
+            : fileName.endsWith('.avif')
+            ? 'image/avif'
+            : 'image/jpeg');
+
+    // Un chemin stable permet de remplacer l'image sans multiplier
+    // les fichiers pour le même produit.
+    final storagePath = '$businessId/$productId/image';
+
+    await _client.storage
+        .from(_bucket)
+        .uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(upsert: true, contentType: contentType),
+        );
+
+    final imageUrl = _client.storage.from(_bucket).getPublicUrl(storagePath);
+
+    await _client.rpc(
+      'set_product_image_url',
+      params: {
+        'p_business_id': businessId,
+        'p_product_id': productId,
+        'p_image_url': imageUrl,
+      },
+    );
+  }
+
   Future<void> deleteProduct(String productId) async {
     final businessId = await getBusinessId();
 

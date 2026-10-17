@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 
 import '../data/mock_product.dart';
@@ -106,7 +109,7 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   Future<void> openProductForm({StockProduct? product}) async {
-    final result = await showDialog<StockProduct>(
+    final result = await showDialog<_ProductFormResult>(
       context: context,
       builder: (_) =>
           _ProductFormDialog(product: product, categories: categories),
@@ -115,7 +118,11 @@ class _ProductsPageState extends State<ProductsPage> {
     if (result == null || !mounted) return;
 
     try {
-      await productService.saveProduct(result, categoryName: result.category);
+      await productService.saveProduct(
+        result.product,
+        categoryName: result.product.category,
+        imageFile: result.imageFile,
+      );
 
       await _loadData();
 
@@ -482,13 +489,45 @@ class _ProductsPageState extends State<ProductsPage> {
                         cells: [
                           DataCell(
                             SizedBox(
-                              width: 155,
-                              child: Text(
-                                product.name,
-                                style: const TextStyle(
-                                  color: AppColors.navy,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              width: 185,
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      width: 42,
+                                      height: 42,
+                                      color: AppColors.background,
+                                      child:
+                                          product.imageUrl != null &&
+                                              product.imageUrl!.isNotEmpty
+                                          ? Image.network(
+                                              product.imageUrl!,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) =>
+                                                  const Icon(
+                                                    Icons.inventory_2_outlined,
+                                                    color: AppColors.muted,
+                                                  ),
+                                            )
+                                          : const Icon(
+                                              Icons.inventory_2_outlined,
+                                              color: AppColors.muted,
+                                            ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      product.name,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.navy,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -586,6 +625,13 @@ class _StatusBadge extends StatelessWidget {
   }
 }
 
+class _ProductFormResult {
+  final StockProduct product;
+  final XFile? imageFile;
+
+  const _ProductFormResult({required this.product, this.imageFile});
+}
+
 class _ProductFormDialog extends StatefulWidget {
   final StockProduct? product;
   final List<String> categories;
@@ -604,6 +650,12 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
   late final TextEditingController priceController;
   late final TextEditingController quantityController;
   late final TextEditingController minimumController;
+
+  final ImagePicker _imagePicker = ImagePicker();
+
+  XFile? selectedImage;
+  Uint8List? selectedImageBytes;
+  bool isPickingImage = false;
 
   late String category;
 
@@ -674,6 +726,32 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
     return null;
   }
 
+  Future<void> _pickImage() async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+      );
+
+      if (image == null || !mounted) return;
+
+      final bytes = await image.readAsBytes();
+
+      if (!mounted) return;
+
+      setState(() {
+        selectedImage = image;
+        selectedImageBytes = bytes;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossible de sélectionner l’image : $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -692,6 +770,86 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Photo du produit',
+                    style: TextStyle(
+                      color: AppColors.navy,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 150,
+                        height: 130,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: selectedImageBytes != null
+                            ? Image.memory(
+                                selectedImageBytes!,
+                                fit: BoxFit.contain,
+                              )
+                            : (widget.product?.imageUrl != null &&
+                                  widget.product!.imageUrl!.isNotEmpty)
+                            ? Image.network(
+                                widget.product!.imageUrl!,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.image_not_supported_outlined,
+                                  size: 40,
+                                  color: AppColors.muted,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.add_photo_alternate_outlined,
+                                size: 42,
+                                color: AppColors.muted,
+                              ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _pickImage,
+                        icon: const Icon(Icons.upload_file_rounded),
+                        label: Text(
+                          selectedImage == null
+                              ? (widget.product?.imageUrl == null
+                                    ? 'Choisir une image'
+                                    : 'Remplacer l’image')
+                              : 'Changer l’image',
+                        ),
+                      ),
+                      if (selectedImage != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          selectedImage!.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
                 _field(
                   nameController,
                   'Nom du produit',
@@ -770,9 +928,13 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
               ),
               quantity: int.parse(quantityController.text.trim()),
               minimumQuantity: int.parse(minimumController.text.trim()),
+              imageUrl: old?.imageUrl,
             );
 
-            Navigator.pop(context, product);
+            Navigator.pop(
+              context,
+              _ProductFormResult(product: product, imageFile: selectedImage),
+            );
           },
           child: Text(widget.product == null ? 'Ajouter' : 'Enregistrer'),
         ),

@@ -6,6 +6,7 @@ class StockProduct {
   final double price;
   final int quantity;
   final int minimumQuantity;
+  final String? imageUrl;
 
   const StockProduct({
     required this.id,
@@ -15,6 +16,7 @@ class StockProduct {
     required this.price,
     required this.quantity,
     required this.minimumQuantity,
+    this.imageUrl,
   });
 
   StockProduct copyWith({
@@ -24,6 +26,7 @@ class StockProduct {
     double? price,
     int? quantity,
     int? minimumQuantity,
+    String? imageUrl,
   }) {
     return StockProduct(
       id: id,
@@ -33,6 +36,7 @@ class StockProduct {
       price: price ?? this.price,
       quantity: quantity ?? this.quantity,
       minimumQuantity: minimumQuantity ?? this.minimumQuantity,
+      imageUrl: imageUrl ?? this.imageUrl,
     );
   }
 

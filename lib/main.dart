@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:stockmind/features/home/pages/homepage.dart';
-import 'package:stockmind/features/sidebar/boutiques/pages/boutique_publique.dart';
+import 'package:stockmind/features/sidebar/boutique_publique/boutique_publique.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'features/authentifications/pages/accept_invitation.dart';
@@ -87,6 +88,16 @@ class StockMindApp extends StatelessWidget {
     return MaterialApp(
       title: 'StockMind',
       debugShowCheckedModeBanner: false,
+
+      // Localisation nécessaire aux DatePicker et autres widgets Material.
+      locale: const Locale('fr', 'FR'),
+      supportedLocales: const [Locale('fr', 'FR'), Locale('en', 'US')],
+      localizationsDelegates: [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: Colors.white,

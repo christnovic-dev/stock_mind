@@ -963,77 +963,111 @@ class _ProductTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final available = product.quantity > 0;
+    final imageUrl = product.imageUrl;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Icon(
-              Icons.inventory_2_outlined,
-              color: AppColors.muted,
-              size: 25,
+          // Photo du produit provenant de Supabase Storage.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              width: 90,
+              height: 90,
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: imageUrl != null && imageUrl.trim().isNotEmpty
+                  ? Image.network(
+                      imageUrl,
+                      width: 90,
+                      height: 90,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+
+                        return const Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return const _ProductImagePlaceholder();
+                      },
+                    )
+                  : const _ProductImagePlaceholder(),
             ),
           ),
-          const SizedBox(width: 12),
+
+          const SizedBox(width: 14),
+
+          // Informations du produit.
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   product.name,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.navy,
-                    fontSize: 13,
+                    fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 5),
+
                 Text(
                   '${product.category} • ${product.reference}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 10),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 11),
                 ),
-                const SizedBox(height: 7),
+
+                const SizedBox(height: 8),
+
                 Wrap(
                   spacing: 8,
+                  runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
-                      product.price.toStringAsFixed(2),
+                      '${product.price.toStringAsFixed(2)} DT',
                       style: const TextStyle(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w800,
-                        fontSize: 13,
+                        fontSize: 14,
                       ),
                     ),
+
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 4,
+                        horizontal: 8,
+                        vertical: 5,
                       ),
                       decoration: BoxDecoration(
                         color: available
                             ? const Color(0xFFE8F7EF)
-                            : const Color(0xFFF1F2F5),
-                        borderRadius: BorderRadius.circular(6),
+                            : const Color(0xFFFCE7EB),
+                        borderRadius: BorderRadius.circular(7),
                       ),
                       child: Text(
                         available ? 'En stock : ${product.quantity}' : 'Épuisé',
                         style: TextStyle(
                           color: available
                               ? const Color(0xFF168653)
-                              : AppColors.muted,
+                              : AppColors.primary,
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
                         ),
@@ -1045,6 +1079,25 @@ class _ProductTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ProductImagePlaceholder extends StatelessWidget {
+  const _ProductImagePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      color: AppColors.background,
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.inventory_2_outlined,
+        size: 30,
+        color: AppColors.muted,
       ),
     );
   }

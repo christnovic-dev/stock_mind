@@ -94,7 +94,7 @@ class _LowStockCardState extends State<_LowStockCard> {
     try {
       final response = await _supabase
           .from('products')
-          .select('id, name, reference, quantity, minimum_quantity')
+          .select('id, name, reference, quantity, minimum_quantity, image_url')
           .eq('business_id', widget.businessId);
 
       final products = List<Map<String, dynamic>>.from(response);
@@ -272,6 +272,61 @@ class _LowStockCardState extends State<_LowStockCard> {
     );
   }
 
+  Widget _buildProductImage(
+    Map<String, dynamic> product,
+    Color statusColor,
+    bool isOutOfStock,
+  ) {
+    final imageUrl = product['image_url']?.toString().trim() ?? '';
+
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: imageUrl.isNotEmpty
+          ? Image.network(
+              imageUrl,
+              width: 42,
+              height: 42,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return _buildProductPlaceholder(statusColor, isOutOfStock);
+              },
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+
+                return Center(
+                  child: SizedBox(
+                    width: 17,
+                    height: 17,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: statusColor,
+                    ),
+                  ),
+                );
+              },
+            )
+          : _buildProductPlaceholder(statusColor, isOutOfStock),
+    );
+  }
+
+  Widget _buildProductPlaceholder(Color statusColor, bool isOutOfStock) {
+    return Center(
+      child: Icon(
+        isOutOfStock
+            ? Icons.remove_shopping_cart_outlined
+            : Icons.inventory_2_outlined,
+        color: statusColor,
+        size: 20,
+      ),
+    );
+  }
+
   Widget _buildProductRow(Map<String, dynamic> product) {
     final name = product['name']?.toString() ?? 'Produit sans nom';
     final reference = product['reference']?.toString() ?? '';
@@ -289,21 +344,7 @@ class _LowStockCardState extends State<_LowStockCard> {
       padding: const EdgeInsets.only(bottom: 13),
       child: Row(
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Icon(
-              isOutOfStock
-                  ? Icons.remove_shopping_cart_outlined
-                  : Icons.inventory_2_outlined,
-              color: statusColor,
-              size: 20,
-            ),
-          ),
+          _buildProductImage(product, statusColor, isOutOfStock),
           const SizedBox(width: 11),
           Expanded(
             child: Column(

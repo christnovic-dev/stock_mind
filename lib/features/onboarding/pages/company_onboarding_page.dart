@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -23,6 +26,9 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
   final _shopName = TextEditingController();
   final _slug = TextEditingController();
   final _logoUrl = TextEditingController();
+
+  Uint8List? _logoBytes;
+  String? _logoFileName;
 
   int _step = 0;
   Color _brandColor = AppColors.primary;
@@ -48,6 +54,87 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
     _slug.dispose();
     _logoUrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickLogo() async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 90,
+      );
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      if (bytes.length > 2 * 1024 * 1024) {
+        _showMessage('Le logo ne doit pas dépasser 2 Mo.');
+        return;
+      }
+
+      final extension = picked.name.split('.').last.toLowerCase();
+      if (!['png', 'jpg', 'jpeg', 'webp'].contains(extension)) {
+        _showMessage('Formats acceptés : PNG, JPG, JPEG ou WEBP.');
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _logoBytes = bytes;
+        _logoFileName = picked.name;
+        _logoUrl.clear();
+      });
+    } catch (error) {
+      if (mounted) _showMessage('Impossible de sélectionner ce logo.');
+    }
+  }
+
+  Future<String> _uploadBusinessLogo(String businessId) async {
+    final bytes = _logoBytes;
+
+    if (bytes == null) {
+      throw Exception('Aucun logo sélectionné.');
+    }
+
+    final rawExtension = (_logoFileName ?? 'logo.png')
+        .split('.')
+        .last
+        .toLowerCase();
+
+    final extension = rawExtension == 'jpeg' ? 'jpg' : rawExtension;
+
+    final contentType = switch (extension) {
+      'jpg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      _ => 'image/png',
+    };
+
+    final path = '$businessId/logo.$extension';
+    final supabase = Supabase.instance.client;
+
+    try {
+      debugPrint('BUSINESS ID: $businessId');
+      debugPrint('LOGO PATH: $path');
+      debugPrint('BUCKET: business-logos');
+
+      await supabase.storage
+          .from('business-logos')
+          .uploadBinary(
+            path,
+            bytes,
+            fileOptions: FileOptions(
+              upsert: false,
+              contentType: contentType,
+              cacheControl: '3600',
+            ),
+          );
+
+      debugPrint('LOGO UPLOAD: SUCCESS');
+
+      return supabase.storage.from('business-logos').getPublicUrl(path);
+    } on StorageException catch (e) {
+      debugPrint('STORAGE STATUS: ${e.statusCode}');
+      debugPrint('STORAGE MESSAGE: ${e.message}');
+      rethrow;
+    }
   }
 
   void _next() {
@@ -128,9 +215,9 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           .substring(2)
           .toUpperCase();
 
-      // Cette fonction SQL crée l'entreprise et son propriétaire
-      // dans une seule transaction.
-      await supabase.rpc(
+      // La fonction SQL crée l'entreprise et son propriétaire.
+      // Elle renvoie l'UUID de l'entreprise, utilisé comme dossier Storage.
+      final result = await supabase.rpc(
         'create_business_with_owner',
         params: {
           'p_name': _companyName.text.trim(),
@@ -140,12 +227,55 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           'p_address': _address.text.trim(),
           'p_shop_name': _shopName.text.trim(),
           'p_slug': _slug.text.trim(),
-          'p_logo_url': _logoUrl.text.trim().isEmpty
+          // Si un fichier est sélectionné, son URL sera enregistrée après upload.
+          'p_logo_url': _logoBytes != null
               ? null
-              : _logoUrl.text.trim(),
+              : (_logoUrl.text.trim().isEmpty ? null : _logoUrl.text.trim()),
           'p_brand_color': '#$colorHex',
         },
       );
+
+      // Certaines fonctions RPC renvoient l'UUID, d'autres renvoient NULL.
+      // On relit donc l'entreprise par son slug après la création pour éviter
+      // de signaler un échec alors que la ligne a déjà été créée.
+      String? businessId;
+      if (result is String && result.isNotEmpty) {
+        businessId = result;
+      } else if (result is Map && result['id'] != null) {
+        businessId = result['id'].toString();
+      }
+
+      final createdBusiness = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('slug', _slug.text.trim())
+          .maybeSingle();
+
+      businessId ??= createdBusiness?['id']?.toString();
+      if (businessId == null || businessId.isEmpty || businessId == 'null') {
+        throw Exception(
+          'Entreprise créée, mais son identifiant est introuvable. '
+          'Vérifiez la fonction SQL et les politiques RLS de businesses.',
+        );
+      }
+
+      if (_logoBytes != null) {
+        final publicLogoUrl = await _uploadBusinessLogo(businessId);
+        final updatedBusiness = await supabase
+            .from('businesses')
+            .update({'logo_url': publicLogoUrl})
+            .eq('id', businessId)
+            .select('id, logo_url')
+            .maybeSingle();
+
+        if (updatedBusiness == null ||
+            updatedBusiness['logo_url']?.toString().isEmpty != false) {
+          throw Exception(
+            'Le logo a été envoyé, mais son URL n’a pas été enregistrée. '
+            'Vérifiez les politiques RLS de businesses.',
+          );
+        }
+      }
 
       if (!mounted) return;
 
@@ -159,9 +289,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
       _showMessage(_friendlySupabaseError(error));
     } catch (error) {
       if (!mounted) return;
-      _showMessage(
-        'Impossible de créer l’entreprise. Vérifiez votre connexion puis réessayez.',
-      );
+      _showMessage(error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -576,22 +704,90 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
         ),
         const SizedBox(height: 28),
         _label('Logo de l’entreprise (facultatif)'),
-        const SizedBox(height: 8),
-        _input(
-          controller: _logoUrl,
-          hint: 'URL de votre logo (facultatif)',
-          icon: Icons.image_outlined,
-          keyboardType: TextInputType.url,
-        ),
         const SizedBox(height: 10),
-        Text(
-          'Pour le moment, tu peux renseigner une URL d’image. '
-          'L’importation d’un fichier depuis ton appareil sera ajoutée ensuite.',
-          style: GoogleFonts.poppins(
-            color: AppColors.muted,
-            fontSize: 10,
-            height: 1.7,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.border),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: _logoBytes != null
+                  ? Image.memory(_logoBytes!, fit: BoxFit.contain)
+                  : (_logoUrl.text.trim().isNotEmpty
+                        ? Image.network(
+                            _logoUrl.text.trim(),
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) =>
+                                const Icon(Icons.image_outlined),
+                          )
+                        : const Icon(
+                            Icons.add_photo_alternate_outlined,
+                            size: 30,
+                          )),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _isSaving ? null : _pickLogo,
+                    icon: const Icon(Icons.upload_file_rounded),
+                    label: const Text('Choisir un logo'),
+                  ),
+                  Text(
+                    _logoFileName ?? 'PNG, JPG ou WEBP • 2 Mo maximum',
+                    style: GoogleFonts.poppins(
+                      color: AppColors.muted,
+                      fontSize: 10,
+                    ),
+                  ),
+                  if (_logoBytes != null || _logoUrl.text.trim().isNotEmpty)
+                    TextButton(
+                      onPressed: _isSaving
+                          ? null
+                          : () => setState(() {
+                              _logoBytes = null;
+                              _logoFileName = null;
+                              _logoUrl.clear();
+                            }),
+                      child: const Text('Retirer le logo'),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          title: Text(
+            'Ou utiliser une URL existante',
+            style: GoogleFonts.poppins(fontSize: 12, color: AppColors.navy),
           ),
+          children: [
+            _input(
+              controller: _logoUrl,
+              hint: 'https://... (facultatif)',
+              icon: Icons.link_rounded,
+              keyboardType: TextInputType.url,
+              onChanged: (value) {
+                if (value.trim().isNotEmpty && _logoBytes != null) {
+                  setState(() {
+                    _logoBytes = null;
+                    _logoFileName = null;
+                  });
+                }
+              },
+            ),
+          ],
         ),
       ],
     );
@@ -723,9 +919,11 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
               _reviewRow('Adresse en ligne', 'stockmind.app/${_slug.text}'),
               _reviewRow(
                 'Logo',
-                _logoUrl.text.trim().isEmpty
-                    ? 'Aucun logo ajouté'
-                    : 'URL renseignée',
+                _logoBytes != null
+                    ? 'Fichier sélectionné : ${_logoFileName ?? 'logo'}'
+                    : (_logoUrl.text.trim().isEmpty
+                          ? 'Aucun logo ajouté'
+                          : 'URL renseignée'),
               ),
               const SizedBox(height: 12),
               Row(

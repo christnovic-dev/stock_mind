@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 
+import '../services/stock_ia_service.dart';
+
 class AssistantIaPage extends StatefulWidget {
-  const AssistantIaPage({super.key});
+  final String businessId;
+
+  const AssistantIaPage({super.key, required this.businessId});
 
   @override
   State<AssistantIaPage> createState() => _AssistantIaPageState();
@@ -18,44 +22,39 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
           'Bonjour ! 👋 Je suis l’assistant StockMind.\n\n'
           'Je peux t’aider à comprendre ton stock, repérer les risques '
           'de rupture et prendre de meilleures décisions pour ta boutique.\n\n'
-          'Que souhaites-tu savoir aujourd’hui ?',
+          'Pose-moi une question sur ton stock réel !',
       isUser: false,
       time: 'Maintenant',
     ),
   ];
 
-  final List<_StockInsight> _insights = const [
-    _StockInsight(
-      name: 'Casque Bluetooth',
-      detail: 'Stock restant : 4 unités',
-      status: 'Stock faible',
-      color: AppColors.orange,
-      icon: Icons.headphones_rounded,
-    ),
-    _StockInsight(
-      name: 'Chargeur USB-C',
-      detail: 'Stock restant : 2 unités',
-      status: 'À surveiller',
-      color: AppColors.primary,
-      icon: Icons.bolt_rounded,
-    ),
-    _StockInsight(
-      name: 'Souris sans fil',
-      detail: 'Stock restant : 18 unités',
-      status: 'Stock correct',
-      color: AppColors.green,
-      icon: Icons.mouse_rounded,
-    ),
-  ];
-
   bool _isTyping = false;
+  bool _loadingStock = true;
+  String? _stockError;
+  Map<String, dynamic>? _stockContext;
 
   final List<String> _suggestions = const [
     'Quels produits réapprovisionner ?',
     'Quels sont les risques de rupture ?',
-    'Quels produits se vendent le mieux ?',
-    'Comment améliorer mon stock ?',
+    'Combien de produits ai-je en stock ?',
+    'Quelle est la valeur de mon stock ?',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStockContext();
+  }
+
+  @override
+  void didUpdateWidget(covariant AssistantIaPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Recharge les données si l'utilisateur change d'entreprise.
+    if (oldWidget.businessId != widget.businessId) {
+      _loadStockContext();
+    }
+  }
 
   @override
   void dispose() {
@@ -64,82 +63,281 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
     super.dispose();
   }
 
-  void _sendMessage([String? suggestedMessage]) {
-    final text = (suggestedMessage ?? _messageController.text).trim();
+  // Récupère les données réelles via la fonction Edge Supabase.
+  Future<void> _loadStockContext() async {
+    if (widget.businessId.isEmpty) {
+      setState(() {
+        _loadingStock = false;
+        _stockError = 'Aucune entreprise sélectionnée.';
+        _stockContext = null;
+      });
+      return;
+    }
 
-    if (text.isEmpty || _isTyping) return;
+    setState(() {
+      _loadingStock = true;
+      _stockError = null;
+    });
+
+    try {
+      final result = await getStockContext(businessId: widget.businessId);
+      ;
+
+      final rawContext = result['stock_context'];
+
+      if (rawContext is! Map) {
+        throw Exception(
+          'La fonction Supabase n’a pas retourné de contexte de stock valide.',
+        );
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _stockContext = Map<String, dynamic>.from(rawContext);
+        _stockError = null;
+        _loadingStock = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _stockError = e.toString();
+        _loadingStock = false;
+      });
+
+      debugPrint('Erreur de chargement du stock : $e');
+    }
+  }
+
+  // Envoie la question, récupère les données et construit une réponse.
+  Future<void> _sendMessage([String? suggestedMessage]) async {
+    final question = (suggestedMessage ?? _messageController.text).trim();
+
+    if (question.isEmpty || _isTyping) return;
 
     setState(() {
       _messages.add(
-        _ChatMessage(text: text, isUser: true, time: _currentTime()),
+        _ChatMessage(text: question, isUser: true, time: _currentTime()),
       );
+
       _messageController.clear();
       _isTyping = true;
     });
 
     _scrollToBottom();
 
-    // Réponse simulée en attendant la connexion à une véritable IA.
-    Future.delayed(const Duration(milliseconds: 700), () {
+    try {
+      final result = await askStockAi(
+        businessId: widget.businessId,
+        question: question,
+      );
+
+      final rawContext = result['stock_context'];
+
+      if (rawContext is! Map) {
+        throw Exception('Le contexte de stock retourné est invalide.');
+      }
+
+      final context = Map<String, dynamic>.from(rawContext);
+
+      final answer = result['answer']?.toString().trim();
+
+      if (answer == null || answer.isEmpty) {
+        throw Exception('Le service IA a retourné une réponse vide.');
+      }
+
       if (!mounted) return;
 
       setState(() {
+        _stockContext = context;
+        _stockError = null;
+        _loadingStock = false;
+
+        _messages.add(
+          _ChatMessage(text: answer, isUser: false, time: _currentTime()),
+        );
+
+        _isTyping = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _stockError = e.toString();
+        _loadingStock = false;
+
         _messages.add(
           _ChatMessage(
-            text: _getMockResponse(text),
+            text:
+                'Je n’ai pas pu récupérer les données de ton stock.\n\n'
+                'Vérifie que tu es connecté, que ton entreprise est '
+                'accessible et que la fonction Edge Supabase fonctionne.\n\n'
+                'Détail technique : $e',
             isUser: false,
             time: _currentTime(),
           ),
         );
+
         _isTyping = false;
       });
 
-      _scrollToBottom();
-    });
+      debugPrint('Erreur assistant IA : $e');
+    }
+
+    _scrollToBottom();
   }
 
-  String _getMockResponse(String question) {
-    final q = question.toLowerCase();
+  // Réponses déterministes basées sur les données de Supabase.
+  // Cette méthode ne fait pas encore appel à un modèle génératif.
+  String _buildStockAnswer(String question, Map<String, dynamic> stock) {
+    final q = _normalize(question);
 
-    if (q.contains('réapprovision') ||
+    final totalProducts = _asInt(stock['total_products']);
+    final totalUnits = _asInt(stock['total_units']);
+    final lowStockCount = _asInt(stock['low_stock_count']);
+    final outOfStockCount = _asInt(stock['out_of_stock_count']);
+    final stockValue = _asDouble(stock['stock_value']);
+
+    final rawProducts = stock['low_stock_products'];
+
+    final products = rawProducts is List
+        ? rawProducts
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
+
+    final asksForProducts =
         q.contains('rupture') ||
-        q.contains('commander')) {
-      return 'Voici un exemple de recommandation basée sur les données '
-          'de démonstration :\n\n'
-          '• Chargeur USB-C : 2 unités restantes. Vérifie les ventes '
-          'récentes et envisage une commande.\n'
-          '• Casque Bluetooth : 4 unités restantes. Surveille la demande '
-          'pour anticiper une éventuelle rupture.\n\n'
-          'Pour calculer précisément les quantités à commander, je devrai '
-          'analyser tes ventes, tes délais fournisseurs et ton stock réel.';
+        q.contains('reapprovision') ||
+        q.contains('commander') ||
+        q.contains('stock faible') ||
+        q.contains('produits faibles') ||
+        q.contains('surveiller');
+
+    final asksForValue =
+        q.contains('valeur') ||
+        q.contains('combien vaut') ||
+        q.contains('cout du stock') ||
+        q.contains('coût du stock');
+
+    final asksForSummary =
+        q.contains('resume') ||
+        q.contains('situation') ||
+        q.contains('etat du stock') ||
+        q.contains('etat actuel') ||
+        q.contains('combien de produits') ||
+        q.contains('nombre de produits') ||
+        q.contains('combien ai-je') ||
+        q.contains('quantite totale') ||
+        q.contains('quantité totale');
+
+    if (asksForProducts) {
+      if (products.isEmpty) {
+        return 'D’après les données actuelles de Supabase, aucun produit '
+            'n’est signalé en stock faible ou en rupture selon les seuils '
+            'enregistrés.\n\n'
+            'Cela ne garantit pas qu’il n’y aura pas de rupture : il faut '
+            'également tenir compte de la vitesse des ventes et des délais '
+            'de livraison.';
+      }
+
+      final details = products
+          .map((product) {
+            final name = product['name']?.toString() ?? 'Produit sans nom';
+            final quantity = _asInt(product['quantity']);
+            final minimum = _asInt(product['minimum_quantity']);
+            final status = quantity == 0 ? 'RUPTURE' : 'Stock faible';
+
+            return '• $name\n'
+                '  Quantité : $quantity unité(s)\n'
+                '  Seuil minimum : $minimum\n'
+                '  État : $status';
+          })
+          .join('\n\n');
+
+      return 'Voici les produits à surveiller dans ton stock réel :\n\n'
+          '$details\n\n'
+          'Conseil : vérifie les ventes récentes et les délais de tes '
+          'fournisseurs avant de déterminer les quantités à commander.';
     }
 
-    if (q.contains('mieux') ||
-        q.contains('vend') ||
-        q.contains('performance')) {
-      return 'Pour identifier tes produits les plus vendus, il faudra '
-          'comparer les quantités vendues sur une période donnée.\n\n'
-          'Je pourrai ensuite te présenter le classement des produits, '
-          'leur chiffre d’affaires et leur évolution. Les données de '
-          'démonstration actuelles ne suffisent pas pour établir un '
-          'classement réel.';
+    if (asksForValue) {
+      return 'La valeur estimée de ton stock est de '
+          '${_formatNumber(stockValue)}.\n\n'
+          'Ce montant est calculé à partir des quantités disponibles '
+          'et des prix enregistrés dans Supabase. Il utilise la devise '
+          'de tes prix et ne représente pas nécessairement le bénéfice '
+          'ou la valeur de revente de tes produits.';
     }
 
-    if (q.contains('améliorer') || q.contains('conseil')) {
-      return 'Voici trois bonnes pratiques pour mieux gérer ton stock :\n\n'
-          '1. Définis un seuil d’alerte pour chaque produit.\n'
-          '2. Suis régulièrement les ventes et les délais de livraison.\n'
-          '3. Identifie les produits qui restent longtemps en stock.\n\n'
-          'Avec tes données réelles, je pourrai adapter ces conseils '
-          'à ta boutique.';
+    if (asksForSummary) {
+      return 'Voici le résumé du stock de ton entreprise :\n\n'
+          '• Produits enregistrés : $totalProducts\n'
+          '• Unités disponibles : $totalUnits\n'
+          '• Produits en stock faible ou en rupture : $lowStockCount\n'
+          '• Produits en rupture : $outOfStockCount\n'
+          '• Valeur estimée : ${_formatNumber(stockValue)}\n\n'
+          'Tu peux aussi me demander quels produits nécessitent une '
+          'attention particulière.';
     }
 
-    return 'Bonne question ! Pour te répondre précisément, je devrai '
-        'consulter les produits, les quantités disponibles, les ventes '
-        'et les informations de tes fournisseurs.\n\n'
-        'Pour le moment, je fonctionne en mode démonstration. Tu peux '
-        'essayer une question sur les ruptures, le réapprovisionnement '
-        'ou les performances des produits.';
+    return 'J’ai consulté les données de stock disponibles pour '
+        'ton entreprise :\n\n'
+        '• Produits enregistrés : $totalProducts\n'
+        '• Unités disponibles : $totalUnits\n'
+        '• Produits à surveiller : $lowStockCount\n'
+        '• Produits en rupture : $outOfStockCount\n\n'
+        'Pour le moment, je peux répondre aux questions sur le résumé '
+        'du stock, les produits à surveiller et la valeur estimée '
+        'de l’inventaire.\n\n'
+        'L’analyse des ventes et les recommandations prédictives '
+        'nécessiteront des données supplémentaires.';
+  }
+
+  String _normalize(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll('é', 'e')
+        .replaceAll('è', 'e')
+        .replaceAll('ê', 'e')
+        .replaceAll('ë', 'e')
+        .replaceAll('à', 'a')
+        .replaceAll('â', 'a')
+        .replaceAll('î', 'i')
+        .replaceAll('ï', 'i')
+        .replaceAll('ô', 'o')
+        .replaceAll('ù', 'u')
+        .replaceAll('û', 'u')
+        .replaceAll('ç', 'c');
+  }
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _formatNumber(num value) {
+    final text = value.toStringAsFixed(2);
+    final parts = text.split('.');
+    final integerPart = parts.first;
+    final buffer = StringBuffer();
+
+    for (int i = 0; i < integerPart.length; i++) {
+      if (i > 0 && (integerPart.length - i) % 3 == 0) {
+        buffer.write(' ');
+      }
+      buffer.write(integerPart[i]);
+    }
+
+    return '${buffer.toString()},${parts.last}';
   }
 
   String _currentTime() {
@@ -151,14 +349,31 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!_scrollController.hasClients) return;
+
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
     });
+  }
+
+  void _newConversation() {
+    setState(() {
+      _messages
+        ..clear()
+        ..add(
+          _ChatMessage(
+            text: 'Nouvelle conversation ! Que veux-tu analyser ?',
+            isUser: false,
+            time: _currentTime(),
+          ),
+        );
+      _isTyping = false;
+    });
+
+    _scrollToBottom();
   }
 
   @override
@@ -205,6 +420,14 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
   }
 
   Widget _buildHeader() {
+    final message = _loadingStock
+        ? 'Connexion à Supabase et chargement du stock...'
+        : _stockError != null
+        ? 'Les données du stock ne sont pas disponibles. '
+              'Vérifie la connexion à Supabase.'
+        : 'Connexion active : les chiffres affichés proviennent '
+              'des données de ton entreprise.';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -244,29 +467,43 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
                 ],
               ),
             ),
+            IconButton(
+              tooltip: 'Actualiser le stock',
+              onPressed: _loadingStock ? null : _loadStockContext,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
           ],
         ),
         const SizedBox(height: 18),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFFFFF8E9),
+            color: _stockError != null
+                ? const Color(0xFFFFF0F0)
+                : const Color(0xFFFFF8E9),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFF5E5BD)),
+            border: Border.all(
+              color: _stockError != null
+                  ? const Color(0xFFF3C5C5)
+                  : const Color(0xFFF5E5BD),
+            ),
           ),
-          child: const Row(
+          child: Row(
             children: [
               Icon(
-                Icons.info_outline_rounded,
+                _stockError != null
+                    ? Icons.error_outline_rounded
+                    : Icons.info_outline_rounded,
                 size: 18,
-                color: AppColors.orange,
+                color: _stockError != null
+                    ? AppColors.primary
+                    : AppColors.orange,
               ),
-              SizedBox(width: 9),
+              const SizedBox(width: 9),
               Expanded(
                 child: Text(
-                  'Mode démonstration : les réponses et les stocks affichés '
-                  'ne proviennent pas encore de ta boutique.',
-                  style: TextStyle(
+                  message,
+                  style: const TextStyle(
                     fontSize: 12,
                     height: 1.5,
                     color: AppColors.navy,
@@ -300,6 +537,7 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
                 if (index >= _messages.length) {
                   return _buildTypingIndicator();
                 }
+
                 return _buildMessage(_messages[index]);
               },
             ),
@@ -333,11 +571,11 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
             ),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'StockMind AI',
                   style: TextStyle(
                     color: AppColors.navy,
@@ -345,14 +583,29 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
                     fontSize: 14,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Row(
                   children: [
-                    Icon(Icons.circle, color: AppColors.green, size: 8),
-                    SizedBox(width: 6),
-                    Text(
-                      'Assistant de démonstration',
-                      style: TextStyle(color: AppColors.muted, fontSize: 11),
+                    Icon(
+                      Icons.circle,
+                      color: _stockError == null
+                          ? AppColors.green
+                          : AppColors.orange,
+                      size: 8,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _loadingStock
+                            ? 'Connexion en cours'
+                            : _stockError == null
+                            ? 'Données de stock connectées'
+                            : 'Connexion à vérifier',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 11,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -361,20 +614,7 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
           ),
           IconButton(
             tooltip: 'Nouvelle conversation',
-            onPressed: () {
-              setState(() {
-                _messages
-                  ..clear()
-                  ..add(
-                    _ChatMessage(
-                      text: 'Nouvelle conversation ! Que veux-tu analyser ?',
-                      isUser: false,
-                      time: _currentTime(),
-                    ),
-                  );
-                _isTyping = false;
-              });
-            },
+            onPressed: _newConversation,
             icon: const Icon(
               Icons.add_comment_outlined,
               color: AppColors.muted,
@@ -487,7 +727,7 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
             ),
             SizedBox(width: 9),
             Text(
-              'StockMind réfléchit...',
+              'StockMind analyse les données...',
               style: TextStyle(color: AppColors.muted, fontSize: 12),
             ),
           ],
@@ -517,7 +757,7 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
             runSpacing: 8,
             children: _suggestions.map((suggestion) {
               return InkWell(
-                onTap: () => _sendMessage(suggestion),
+                onTap: _isTyping ? null : () => _sendMessage(suggestion),
                 borderRadius: BorderRadius.circular(11),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -599,6 +839,9 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
+                disabledBackgroundColor: AppColors.primary.withValues(
+                  alpha: 0.5,
+                ),
                 padding: EdgeInsets.zero,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
@@ -614,6 +857,22 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
   }
 
   Widget _buildInsightsPanel() {
+    final stock = _stockContext ?? <String, dynamic>{};
+
+    final totalProducts = _asInt(stock['total_products']);
+    final lowStockCount = _asInt(stock['low_stock_count']);
+    final outOfStockCount = _asInt(stock['out_of_stock_count']);
+    final totalUnits = _asInt(stock['total_units']);
+    final stockValue = _asDouble(stock['stock_value']);
+
+    final rawProducts = stock['low_stock_products'];
+    final products = rawProducts is List
+        ? rawProducts
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -626,9 +885,13 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
           ),
         ),
         const SizedBox(height: 5),
-        const Text(
-          'Exemples de données pour la démonstration',
-          style: TextStyle(color: AppColors.muted, fontSize: 11),
+        Text(
+          _loadingStock
+              ? 'Chargement des données...'
+              : _stockError != null
+              ? 'Données indisponibles'
+              : 'Données réelles de ton entreprise',
+          style: const TextStyle(color: AppColors.muted, fontSize: 11),
         ),
         const SizedBox(height: 15),
         Row(
@@ -637,7 +900,7 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
               child: _buildMetricCard(
                 icon: Icons.inventory_2_outlined,
                 label: 'Produits',
-                value: '128',
+                value: _loadingStock ? '…' : '$totalProducts',
                 color: AppColors.navy,
               ),
             ),
@@ -646,8 +909,30 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
               child: _buildMetricCard(
                 icon: Icons.warning_amber_rounded,
                 label: 'Stock faible',
-                value: '08',
+                value: _loadingStock ? '…' : '$lowStockCount',
+                color: AppColors.orange,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _buildMetricCard(
+                icon: Icons.inventory_outlined,
+                label: 'Unités en stock',
+                value: _loadingStock ? '…' : '$totalUnits',
                 color: AppColors.navy,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildMetricCard(
+                icon: Icons.remove_shopping_cart_outlined,
+                label: 'En rupture',
+                value: _loadingStock ? '…' : '$outOfStockCount',
+                color: AppColors.primary,
               ),
             ),
           ],
@@ -684,7 +969,25 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
                 ],
               ),
               const SizedBox(height: 15),
-              ..._insights.map(_buildInsightItem),
+              if (_loadingStock)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(18),
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  ),
+                )
+              else if (_stockError != null)
+                _buildEmptyState(
+                  'Impossible de charger les produits.',
+                  Icons.cloud_off_rounded,
+                )
+              else if (products.isEmpty)
+                _buildEmptyState(
+                  'Aucun produit en stock faible ou en rupture.',
+                  Icons.check_circle_outline_rounded,
+                )
+              else
+                ...products.take(8).map(_buildInsightItem),
             ],
           ),
         ),
@@ -699,16 +1002,20 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
             ),
             borderRadius: BorderRadius.circular(18),
           ),
-          child: const Row(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 22),
-              SizedBox(width: 12),
+              const Icon(
+                Icons.auto_awesome_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Le conseil StockMind',
                       style: TextStyle(
                         color: Colors.white,
@@ -716,11 +1023,18 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
                         fontSize: 13,
                       ),
                     ),
-                    SizedBox(height: 7),
+                    const SizedBox(height: 7),
                     Text(
-                      'Un bon réapprovisionnement prend en compte les ventes, '
-                      'le stock disponible et les délais de livraison.',
-                      style: TextStyle(
+                      _loadingStock
+                          ? 'Chargement des données du stock en cours.'
+                          : _stockError != null
+                          ? 'Vérifie la connexion à Supabase pour obtenir '
+                                'des recommandations liées à ton stock.'
+                          : 'Valeur estimée du stock : '
+                                '${_formatNumber(stockValue)}. '
+                                'Surveille les $lowStockCount produits '
+                                'en stock faible ou en rupture.',
+                      style: const TextStyle(
                         color: Colors.white70,
                         height: 1.6,
                         fontSize: 11,
@@ -733,6 +1047,28 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildEmptyState(String message, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.muted, size: 21),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -772,7 +1108,15 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
     );
   }
 
-  Widget _buildInsightItem(_StockInsight insight) {
+  Widget _buildInsightItem(Map<String, dynamic> product) {
+    final name = product['name']?.toString() ?? 'Produit sans nom';
+    final quantity = _asInt(product['quantity']);
+    final minimum = _asInt(product['minimum_quantity']);
+    final outOfStock = quantity == 0;
+
+    final color = outOfStock ? AppColors.primary : AppColors.orange;
+    final status = outOfStock ? 'Rupture' : 'Stock faible';
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: Row(
@@ -781,10 +1125,16 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
             width: 39,
             height: 39,
             decoration: BoxDecoration(
-              color: insight.color.withValues(alpha: 0.09),
+              color: color.withValues(alpha: 0.09),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(insight.icon, color: insight.color, size: 20),
+            child: Icon(
+              outOfStock
+                  ? Icons.remove_shopping_cart_rounded
+                  : Icons.warning_amber_rounded,
+              color: color,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 11),
           Expanded(
@@ -792,7 +1142,7 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  insight.name,
+                  name,
                   style: const TextStyle(
                     color: AppColors.navy,
                     fontSize: 12,
@@ -801,7 +1151,7 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  insight.detail,
+                  '$quantity unité(s) · Seuil : $minimum',
                   style: const TextStyle(color: AppColors.muted, fontSize: 10),
                 ),
               ],
@@ -810,10 +1160,10 @@ class _AssistantIaPageState extends State<AssistantIaPage> {
           const SizedBox(width: 5),
           Flexible(
             child: Text(
-              insight.status,
+              status,
               textAlign: TextAlign.end,
               style: TextStyle(
-                color: insight.color,
+                color: color,
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
               ),
@@ -834,21 +1184,5 @@ class _ChatMessage {
     required this.text,
     required this.isUser,
     required this.time,
-  });
-}
-
-class _StockInsight {
-  final String name;
-  final String detail;
-  final String status;
-  final Color color;
-  final IconData icon;
-
-  const _StockInsight({
-    required this.name,
-    required this.detail,
-    required this.status,
-    required this.color,
-    required this.icon,
   });
 }

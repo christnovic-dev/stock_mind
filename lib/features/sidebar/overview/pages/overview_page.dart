@@ -5,13 +5,16 @@ import '../../assistant_ia/pages/assistant_ia.dart';
 import '../../boutiques/pages/ma_boutique.dart';
 import '../../categories/pages/categories_page.dart';
 import '../../clients/pages/client_page.dart';
-import '../../employes/pages/employes_page.dart';
+import '../../equipe/pages/employes_page.dart';
 import '../../fournisseurs/pages/fournisseurs.dart';
+import '../../historique/pages/historiques_commandes.dart';
 import '../../mouvement/pages/mouvement_page.dart';
 import '../../product/pages/product_page.dart';
 import '../../rapport/pages/rapport_page.dart';
+import '../../vente/pages/vente_page.dart';
 import '../widget/alerte_recent_activity.dart';
 import '../widget/analytics.dart';
+import '../widget/overview_tache.dart';
 import '../widget/sidebar.dart';
 import '../widget/stat_grid.dart';
 
@@ -38,12 +41,14 @@ class _OverviewPageState extends State<OverviewPage> {
     MenuItem('Overview', Icons.grid_view_rounded),
     MenuItem('Produits', Icons.inventory_2_outlined),
     MenuItem('Catégories', Icons.category_outlined),
-    MenuItem('Ma boutique', Icons.swap_vert_rounded),
+    MenuItem('Ma boutique', Icons.shop),
+    MenuItem('ventes', Icons.shopping_cart),
     MenuItem('Mouvements', Icons.swap_vert_rounded),
     MenuItem('Fournisseurs', Icons.local_shipping_outlined),
     MenuItem('Clients', Icons.people_outline_rounded),
-    MenuItem('Employés', Icons.people_outline_rounded),
+    MenuItem('Equipe', Icons.people_outline_rounded),
     MenuItem('Rapports', Icons.bar_chart_rounded),
+    MenuItem('Historique des commandes', Icons.history_edu),
     MenuItem('Assistant IA', Icons.auto_awesome_outlined),
   ];
 
@@ -88,110 +93,147 @@ class _OverviewPageState extends State<OverviewPage> {
                         1 => 'Produits',
                         2 => 'Catégories',
                         3 => 'Ma boutique',
-                        4 => 'Mouvements',
-                        5 => 'Fournisseurs',
-                        6 => 'Clients',
-                        7 => 'Employés',
-                        8 => 'Rapports',
-                        9 => 'Assistant IA',
+                        4 => 'ventes',
+                        5 => 'Mouvements',
+                        6 => 'Fournisseurs',
+                        7 => 'Clients',
+                        8 => 'Equipe',
+                        9 => 'Rapports',
+                        10 => 'Historique des commandes',
+                        11 => 'Assistant IA',
                         _ => 'Tableau de bord',
                       },
                     ),
+
                     Expanded(
-                      child: SingleChildScrollView(
-                        padding: EdgeInsets.all(isMobile ? 16 : 28),
-                        child: Center(
-                          child: selectedIndex == 1
-                              ? ProductsPage(
-                                  key: ValueKey(
-                                    '${widget.businessId}_${selectedProductCategory ?? ''}',
-                                  ),
-                                  businessId: widget.businessId,
-                                  initialCategory: selectedProductCategory,
-                                )
-                              : selectedIndex == 2
-                              ? CategoriesPage(
-                                  key: ValueKey(widget.businessId),
-                                  businessId: widget.businessId,
-                                  onViewProducts: (categoryName) {
-                                    setState(() {
-                                      selectedProductCategory = categoryName;
-                                      selectedIndex = 1;
-                                    });
-                                  },
-                                )
-                              : selectedIndex == 3
-                              ? MaBoutiquePage(businessId: widget.businessId)
-                              : selectedIndex == 4
-                              ? MouvementsPage(businessId: widget.businessId)
-                              : selectedIndex == 5
-                              ? FournisseursPage(businessId: widget.businessId)
-                              : selectedIndex == 6
-                              ? ClientsPage(businessId: widget.businessId)
-                              : selectedIndex == 7
-                              ? EmployesPage(businessId: widget.businessId)
-                              : selectedIndex == 8
-                              ? RapportsPage(
-                                  key: ValueKey(widget.businessId),
-                                  businessId: widget.businessId,
-                                )
-                              : selectedIndex == 9
-                              ? const AssistantIaPage()
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _WelcomeSection(
-                                      businessName: widget.businessName,
-                                      onAddProduct: () {
-                                        setState(() {
-                                          selectedProductCategory = null;
-                                          selectedIndex = 1;
-                                        });
-                                      },
-                                    ),
-                                    const SizedBox(height: 26),
-                                    const _SectionHeading(
-                                      title: 'Vue d’ensemble',
-                                      subtitle:
-                                          'Voici ce qui se passe dans votre stock.',
-                                    ),
-                                    const SizedBox(height: 18),
-                                    StatsGrid(
-                                      isMobile: isMobile,
-                                      businessId: widget.businessId,
-                                    ),
-                                    const SizedBox(height: 24),
-                                    MainAnalytics(
-                                      isMobile: isMobile,
-                                      businessId: widget.businessId,
-                                    ),
-                                    const SizedBox(height: 24),
-
-                                    BottomPanels(
-                                      isMobile: isMobile,
-                                      businessId: widget.businessId,
-                                      onViewProducts: () {
-                                        setState(() {
-                                          selectedProductCategory = null;
-                                          selectedIndex = 1;
-                                        });
-                                      },
-                                    ),
-
-                                    const SizedBox(height: 28),
-                                    const Center(
-                                      child: Text(
-                                        'StockMind • Gérez mieux, anticipez plus.',
-                                        style: TextStyle(
-                                          color: AppColors.muted,
-                                          fontSize: 12,
+                      child: selectedIndex == 4
+                          ? VentePage(
+                              key: ValueKey('vente_${widget.businessId}'),
+                              businessId: widget.businessId,
+                              businessName: widget.businessName,
+                            )
+                          : selectedIndex == 10
+                          ? HistoriqueCommandesPage(
+                              key: ValueKey('historique_${widget.businessId}'),
+                              businessId: widget.businessId,
+                            )
+                          : SingleChildScrollView(
+                              padding: EdgeInsets.all(isMobile ? 16 : 28),
+                              child: Center(
+                                child: selectedIndex == 1
+                                    ? ProductsPage(
+                                        key: ValueKey(
+                                          '${widget.businessId}_${selectedProductCategory ?? ''}',
                                         ),
+                                        businessId: widget.businessId,
+                                        initialCategory:
+                                            selectedProductCategory,
+                                      )
+                                    : selectedIndex == 2
+                                    ? CategoriesPage(
+                                        key: ValueKey(widget.businessId),
+                                        businessId: widget.businessId,
+                                        onViewProducts: (categoryName) {
+                                          setState(() {
+                                            selectedProductCategory =
+                                                categoryName;
+                                            selectedIndex = 1;
+                                          });
+                                        },
+                                      )
+                                    : selectedIndex == 3
+                                    ? MaBoutiquePage(
+                                        businessId: widget.businessId,
+                                      )
+                                    : selectedIndex == 5
+                                    ? MouvementsPage(
+                                        businessId: widget.businessId,
+                                      )
+                                    : selectedIndex == 6
+                                    ? FournisseursPage(
+                                        businessId: widget.businessId,
+                                      )
+                                    : selectedIndex == 7
+                                    ? ClientsPage(businessId: widget.businessId)
+                                    : selectedIndex == 8
+                                    ? EmployesPage(
+                                        businessId: widget.businessId,
+                                      )
+                                    : selectedIndex == 9
+                                    ? RapportsPage(
+                                        key: ValueKey(widget.businessId),
+                                        businessId: widget.businessId,
+                                      )
+                                    : selectedIndex == 11
+                                    ? AssistantIaPage(
+                                        businessId: widget.businessId,
+                                      )
+                                    : Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _WelcomeSection(
+                                            businessName: widget.businessName,
+                                            onAddProduct: () {
+                                              setState(() {
+                                                selectedProductCategory = null;
+                                                selectedIndex = 1;
+                                              });
+                                            },
+                                          ),
+                                          const SizedBox(height: 26),
+                                          const _SectionHeading(
+                                            title: 'Vue d’ensemble',
+                                            subtitle:
+                                                'Voici ce qui se passe dans votre stock.',
+                                          ),
+                                          const SizedBox(height: 18),
+                                          StatsGrid(
+                                            isMobile: isMobile,
+                                            businessId: widget.businessId,
+                                          ),
+                                          const SizedBox(height: 24),
+                                          TacheOverview(
+                                            key: ValueKey(
+                                              'overview_tasks_${widget.businessId}',
+                                            ),
+                                            businessId: widget.businessId,
+                                            onViewTasks: () {
+                                              setState(() {
+                                                selectedIndex = 8;
+                                              });
+                                            },
+                                          ),
+                                          const SizedBox(height: 24),
+                                          MainAnalytics(
+                                            isMobile: isMobile,
+                                            businessId: widget.businessId,
+                                          ),
+                                          const SizedBox(height: 24),
+                                          BottomPanels(
+                                            isMobile: isMobile,
+                                            businessId: widget.businessId,
+                                            onViewProducts: () {
+                                              setState(() {
+                                                selectedProductCategory = null;
+                                                selectedIndex = 1;
+                                              });
+                                            },
+                                          ),
+                                          const SizedBox(height: 28),
+                                          const Center(
+                                            child: Text(
+                                              'StockMind • Gérez mieux, anticipez plus.',
+                                              style: TextStyle(
+                                                color: AppColors.muted,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
+                              ),
+                            ),
                     ),
                   ],
                 ),
