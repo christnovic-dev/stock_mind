@@ -1,10 +1,13 @@
-import 'dart:html' as html;
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'rapport_pdf_download_stub.dart'
+    if (dart.library.html) 'rapport_pdf_download_web.dart'
+    as pdf_download;
 
 class RapportPdfService {
   static const PdfColor _navy = PdfColor(20 / 255, 38 / 255, 75 / 255);
@@ -19,34 +22,15 @@ class RapportPdfService {
 
   static const PdfColor _orange = PdfColor(184 / 255, 117 / 255, 16 / 255);
 
-  /// Télécharge directement le rapport PDF dans le navigateur.
+  /// Télécharge le rapport sur le Web ou ouvre les options
+  /// de partage du PDF sur Android.
   static Future<void> telechargerPdf({
     required String businessId,
     required String period,
   }) async {
     final result = await _genererPdf(businessId: businessId, period: period);
 
-    final bytes = result.bytes;
-    final fileName = result.fileName;
-
-    final blob = html.Blob(<Object>[bytes], 'application/pdf');
-
-    final url = html.Url.createObjectUrlFromBlob(blob);
-
-    try {
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute('download', fileName)
-        ..style.display = 'none';
-
-      html.document.body?.children.add(anchor);
-      anchor.click();
-      anchor.remove();
-    } finally {
-      // Laisse au navigateur le temps de commencer le téléchargement.
-      await Future<void>.delayed(const Duration(seconds: 1));
-
-      html.Url.revokeObjectUrl(url);
-    }
+    await pdf_download.downloadPdf(result.bytes, result.fileName);
   }
 
   /// Ouvre la fenêtre d'impression du navigateur.

@@ -627,21 +627,6 @@ class _EmployesPageState extends State<EmployesPage> {
             ),
           ),
         if (mobile) const SizedBox(height: 18),
-        if (_isOwner)
-          FilledButton.icon(
-            onPressed: _busy ? null : _openInvitationDialog,
-            icon: const Icon(Icons.person_add_alt_1_rounded, size: 19),
-            label: const Text('Inviter un membre'),
-            style: FilledButton.styleFrom(
-              backgroundColor: _red,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(11),
-              ),
-            ),
-          ),
-        SizedBox(width: 7),
         OutlinedButton.icon(
           onPressed: () {
             Navigator.push(
@@ -658,6 +643,21 @@ class _EmployesPageState extends State<EmployesPage> {
           icon: const Icon(Icons.checklist_rounded),
           label: const Text('Tâches de l’équipe'),
         ),
+        if (_isOwner)
+          FilledButton.icon(
+            onPressed: _busy ? null : _openInvitationDialog,
+            icon: const Icon(Icons.person_add_alt_1_rounded, size: 19),
+            label: const Text('Inviter un membre'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _red,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(11),
+              ),
+            ),
+          ),
+        SizedBox(width: 7),
       ],
     );
   }

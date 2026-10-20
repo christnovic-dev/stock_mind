@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
+import 'package:stockmind/features/sidebar/equipe/pages/dossier_employees_page.dart';
 
+import '../../../Gestion_ressources_humaine/pages/horaire_page.dart';
+import '../../../Gestion_ressources_humaine/pages/presence_page.dart';
 import '../../assistant_ia/pages/assistant_ia.dart';
 import '../../boutiques/pages/ma_boutique.dart';
 import '../../categories/pages/categories_page.dart';
@@ -50,6 +53,9 @@ class _OverviewPageState extends State<OverviewPage> {
     MenuItem('Rapports', Icons.bar_chart_rounded),
     MenuItem('Historique des commandes', Icons.history_edu),
     MenuItem('Assistant IA', Icons.auto_awesome_outlined),
+    MenuItem('Dossiers', Icons.file_copy),
+    MenuItem('Presence', Icons.co_present_outlined),
+    MenuItem('Horaires', Icons.schedule),
   ];
 
   @override
@@ -101,6 +107,9 @@ class _OverviewPageState extends State<OverviewPage> {
                         9 => 'Rapports',
                         10 => 'Historique des commandes',
                         11 => 'Assistant IA',
+                        12 => 'Dossiers',
+                        13 => 'Présence',
+                        14 => 'Horaires',
                         _ => 'Tableau de bord',
                       },
                     ),
@@ -115,6 +124,16 @@ class _OverviewPageState extends State<OverviewPage> {
                           : selectedIndex == 10
                           ? HistoriqueCommandesPage(
                               key: ValueKey('historique_${widget.businessId}'),
+                              businessId: widget.businessId,
+                            )
+                          : selectedIndex == 13
+                          ? PresencePage(
+                              key: ValueKey('presence_${widget.businessId}'),
+                              businessId: widget.businessId,
+                            )
+                          : selectedIndex == 14
+                          ? HorairePage(
+                              key: ValueKey('horaires_${widget.businessId}'),
                               businessId: widget.businessId,
                             )
                           : SingleChildScrollView(
@@ -166,6 +185,10 @@ class _OverviewPageState extends State<OverviewPage> {
                                       )
                                     : selectedIndex == 11
                                     ? AssistantIaPage(
+                                        businessId: widget.businessId,
+                                      )
+                                    : selectedIndex == 12
+                                    ? DossierEmployesPage(
                                         businessId: widget.businessId,
                                       )
                                     : Column(
