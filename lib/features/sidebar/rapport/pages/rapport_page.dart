@@ -436,64 +436,110 @@ class _RapportsPageState extends State<RapportsPage> {
   }
 
   Widget _buildHeader(bool compact) {
-    return Row(
+    final titleSection = Row(
       children: [
         Container(
-          width: 48,
-          height: 48,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
             color: AppColors.primary.withValues(alpha: 0.09),
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(14),
           ),
           child: const Icon(
             Icons.analytics_outlined,
             color: AppColors.primary,
-            size: 26,
+            size: 25,
           ),
         ),
-        const SizedBox(width: 13),
+        const SizedBox(width: 12),
         const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 'Rapports',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: AppColors.navy,
-                  fontSize: 25,
+                  fontSize: 23,
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              SizedBox(height: 5),
+              SizedBox(height: 4),
               Text(
                 'Analyse et suivi des performances de ton stock.',
-                style: TextStyle(color: AppColors.muted, fontSize: 12),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 11,
+                  height: 1.3,
+                ),
               ),
             ],
           ),
         ),
+      ],
+    );
+
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
         IconButton(
-          onPressed: _loading ? null : _loadReport,
+          onPressed: _loading || _exportingPdf ? null : _loadReport,
           tooltip: 'Actualiser les rapports',
           icon: const Icon(Icons.refresh_rounded, color: AppColors.navy),
         ),
-
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            OutlinedButton.icon(
-              onPressed: (_loading || _exportingPdf) ? null : _downloadPdf,
-              icon: const Icon(Icons.download_rounded),
-              label: const Text(''),
+        const SizedBox(width: 4),
+        OutlinedButton(
+          onPressed: (_loading || _exportingPdf) ? null : _downloadPdf,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.navy,
+            side: const BorderSide(color: AppColors.border),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            minimumSize: const Size(44, 44),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
             ),
-            const SizedBox(width: 8),
-            ElevatedButton.icon(
-              onPressed: (_loading || _exportingPdf) ? null : _printReport,
-              icon: const Icon(Icons.print_rounded),
-              label: Text(''),
-            ),
-          ],
+          ),
+          child: const Icon(Icons.download_rounded, size: 20),
         ),
+        const SizedBox(width: 8),
+        ElevatedButton(
+          onPressed: (_loading || _exportingPdf) ? null : _printReport,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            minimumSize: const Size(44, 44),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: const Icon(Icons.print_rounded, size: 20),
+        ),
+      ],
+    );
+
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          titleSection,
+          const SizedBox(height: 14),
+          Align(alignment: Alignment.centerRight, child: actions),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: titleSection),
+        const SizedBox(width: 16),
+        actions,
       ],
     );
   }

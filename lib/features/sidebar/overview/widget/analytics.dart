@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/services/currency_scope.dart';
+import '../../../core/services/currency_service.dart';
+
 class MainAnalytics extends StatefulWidget {
   final bool isMobile;
   final String businessId;
@@ -75,8 +78,8 @@ class _MainAnalyticsState extends State<MainAnalytics> {
     );
   }
 
-  String _formatMoney(double value) {
-    return '${_formatNumber(value.round())} DT';
+  String _formatMoney(double value, String currencyCode) {
+    return CurrencyService.format(value, currencyCode: currencyCode);
   }
 
   Future<void> _loadAnalytics() async {
@@ -211,6 +214,7 @@ class _MainAnalyticsState extends State<MainAnalytics> {
 
   @override
   Widget build(BuildContext context) {
+    final currencyCode = CurrencyScope.of(context).currencyCode;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -247,6 +251,7 @@ class _MainAnalyticsState extends State<MainAnalytics> {
               stockValue: _stockValue,
               monthlyNetMovements: _monthlyNetMovements,
               months: _months,
+              currencyCode: currencyCode,
             );
 
             final summary = _SummaryCard(
@@ -284,6 +289,7 @@ class _StockChartCard extends StatelessWidget {
   final double stockValue;
   final List<double> monthlyNetMovements;
   final List<String> months;
+  final String currencyCode;
 
   const _StockChartCard({
     required this.height,
@@ -291,14 +297,8 @@ class _StockChartCard extends StatelessWidget {
     required this.stockValue,
     required this.monthlyNetMovements,
     required this.months,
+    required this.currencyCode,
   });
-
-  String _formatNumber(double value) {
-    return value.round().toString().replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ' ',
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -348,7 +348,10 @@ class _StockChartCard extends StatelessWidget {
                   child: Text(
                     isLoading
                         ? 'Chargement...'
-                        : '${_formatNumber(stockValue)} DT',
+                        : CurrencyService.format(
+                            stockValue,
+                            currencyCode: currencyCode,
+                          ),
                     style: const TextStyle(
                       color: AppColors.navy,
                       fontSize: 23,

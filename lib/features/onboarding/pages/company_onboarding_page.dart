@@ -18,6 +18,31 @@ class CompanyOnboardingPage extends StatefulWidget {
 class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
   final _formKey = GlobalKey<FormState>();
 
+  String _currencyCode = 'TND';
+
+  final List<Map<String, String>> _currencies = [
+    {'code': 'TND', 'name': 'Dinar tunisien', 'symbol': 'DT'},
+    {'code': 'USD', 'name': 'Dollar américain', 'symbol': r'$'},
+    {'code': 'EUR', 'name': 'Euro', 'symbol': '€'},
+    {'code': 'CDF', 'name': 'Franc congolais', 'symbol': 'FC'},
+    {'code': 'XAF', 'name': 'Franc CFA d’Afrique centrale', 'symbol': 'FCFA'},
+    {'code': 'XOF', 'name': 'Franc CFA d’Afrique de l’Ouest', 'symbol': 'FCFA'},
+    {'code': 'GBP', 'name': 'Livre sterling', 'symbol': '£'},
+    {'code': 'CAD', 'name': 'Dollar canadien', 'symbol': r'$'},
+    {'code': 'CHF', 'name': 'Franc suisse', 'symbol': 'CHF'},
+    {'code': 'MAD', 'name': 'Dirham marocain', 'symbol': 'DH'},
+    {'code': 'DZD', 'name': 'Dinar algérien', 'symbol': 'DA'},
+    {'code': 'AED', 'name': 'Dirham des Émirats arabes unis', 'symbol': 'AED'},
+    {'code': 'SAR', 'name': 'Riyal saoudien', 'symbol': 'SAR'},
+    {'code': 'CNY', 'name': 'Yuan chinois', 'symbol': '¥'},
+    {'code': 'JPY', 'name': 'Yen japonais', 'symbol': '¥'},
+    {'code': 'ZAR', 'name': 'Rand sud-africain', 'symbol': 'R'},
+    {'code': 'KES', 'name': 'Shilling kényan', 'symbol': 'KSh'},
+    {'code': 'NGN', 'name': 'Naira nigérian', 'symbol': '₦'},
+    {'code': 'GHS', 'name': 'Cedi ghanéen', 'symbol': 'GH₵'},
+    {'code': 'BRL', 'name': 'Réal brésilien', 'symbol': 'R\$'},
+  ];
+
   final _companyName = TextEditingController();
   final _sector = TextEditingController();
   final _phone = TextEditingController();
@@ -232,6 +257,7 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
               ? null
               : (_logoUrl.text.trim().isEmpty ? null : _logoUrl.text.trim()),
           'p_brand_color': '#$colorHex',
+          'p_currency_code': _currencyCode,
         },
       );
 
@@ -563,6 +589,46 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
           onChanged: (value) {
             setState(() => _sector.text = value ?? '');
           },
+        ),
+        const SizedBox(height: 20),
+
+        _label('Devise principale de l’entreprise'),
+        const SizedBox(height: 8),
+
+        DropdownButtonFormField<String>(
+          value: _currencyCode,
+          isExpanded: true,
+          decoration: _decoration(
+            hint: 'Choisissez votre devise',
+            icon: Icons.payments_outlined,
+          ),
+          items: _currencies.map((currency) {
+            return DropdownMenuItem<String>(
+              value: currency['code'],
+              child: Text(
+                '${currency['name']} (${currency['code']})',
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(fontSize: 12, color: AppColors.navy),
+              ),
+            );
+          }).toList(),
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _currencyCode = value);
+            }
+          },
+        ),
+
+        const SizedBox(height: 8),
+
+        Text(
+          'Cette devise sera utilisée pour les prix, les ventes, '
+          'la valeur du stock et les rapports de votre entreprise.',
+          style: GoogleFonts.poppins(
+            fontSize: 10,
+            color: AppColors.muted,
+            height: 1.7,
+          ),
         ),
         const SizedBox(height: 24),
         _infoBox(
@@ -912,6 +978,10 @@ class _CompanyOnboardingPageState extends State<CompanyOnboardingPage> {
             children: [
               _reviewRow('Entreprise', _companyName.text),
               _reviewRow('Secteur', _sector.text),
+              _reviewRow(
+                'Devise principale',
+                '${_currencies.firstWhere((currency) => currency['code'] == _currencyCode)['name']} ($_currencyCode)',
+              ),
               _reviewRow('Téléphone', _phone.text),
               _reviewRow('Ville', _city.text),
               _reviewRow('Adresse', _address.text),

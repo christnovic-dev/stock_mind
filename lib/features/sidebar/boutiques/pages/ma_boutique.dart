@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 import 'package:stockmind/features/sidebar/boutiques/pages/recu.dart';
 
+import '../../../core/services/currency_scope.dart';
+import '../../../core/services/currency_service.dart';
 import '../../product/data/mock_product.dart';
 import '../../product/services/product_services.dart';
 import '../service/service_boutique.dart';
@@ -1043,7 +1045,10 @@ class _ProductTile extends StatelessWidget {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
-                      '${product.price.toStringAsFixed(2)} DT',
+                      CurrencyService.format(
+                        product.price,
+                        currencyCode: CurrencyScope.of(context).currencyCode,
+                      ),
                       style: const TextStyle(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w800,

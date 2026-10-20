@@ -675,7 +675,7 @@ class _EquipeTachesPageState extends State<EquipeTachesPage> {
           physics: const NeverScrollableScrollPhysics(),
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: columns == 2 ? 2.5 : 3.3,
+          childAspectRatio: columns == 2 ? 2.0 : 3.3,
           children: [
             _statCard('Total', _tasks.length, Icons.checklist_rounded, _navy),
             _statCard('To do', _pendingCount, Icons.pending_actions, _muted),

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/services/currency_scope.dart';
+import '../../../core/services/currency_service.dart';
+
 class CommandesRecuesSection extends StatefulWidget {
   final String businessId;
 
@@ -259,9 +262,12 @@ class _CommandesRecuesSectionState extends State<CommandesRecuesSection> {
 
   String _money(dynamic value) {
     final amount = value is num
-        ? value.toDouble()
-        : double.tryParse(value?.toString() ?? '') ?? 0;
-    return amount.toStringAsFixed(2);
+        ? value
+        : num.tryParse(value?.toString() ?? '') ?? 0;
+
+    final currencyCode = CurrencyScope.of(context).currencyCode;
+
+    return CurrencyService.format(amount, currencyCode: currencyCode);
   }
 
   @override

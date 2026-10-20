@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/services/currency_scope.dart';
+import '../../../core/services/currency_service.dart';
+
 class StatsGrid extends StatefulWidget {
   final bool isMobile;
   final String businessId;
@@ -113,12 +116,13 @@ class _StatsGridState extends State<StatsGrid> {
     );
   }
 
-  String _formatMoney(double value) {
-    return '${_formatNumber(value.round())} DT';
+  String _formatMoney(double value, String currencyCode) {
+    return CurrencyService.format(value, currencyCode: currencyCode);
   }
 
   @override
   Widget build(BuildContext context) {
+    final currencyCode = CurrencyScope.of(context).currencyCode;
     final stats = [
       _StatData(
         title: 'Total des produits',
@@ -130,7 +134,7 @@ class _StatsGridState extends State<StatsGrid> {
       ),
       _StatData(
         title: 'Valeur du stock',
-        value: _formatMoney(_stockValue),
+        value: _formatMoney(_stockValue, currencyCode),
         detail: 'Valeur estimée',
         icon: Icons.account_balance_wallet_outlined,
         color: const Color(0xFF14A579),

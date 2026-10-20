@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:stockmind/features/sidebar/boutique_publique/product_card.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/services/currency_service.dart';
+
 const Color _red = Color(0xFFF21D3D);
 const Color _navy = Color(0xFF14264B);
 const Color _background = Color(0xFFF7F8FC);
@@ -78,10 +80,13 @@ class _StorefrontPageState extends State<StorefrontPage> {
 
   String _money(dynamic value) {
     final amount = value is num
-        ? value.toDouble()
-        : double.tryParse(value?.toString() ?? '') ?? 0;
+        ? value
+        : num.tryParse(value?.toString() ?? '') ?? 0;
 
-    return amount.toStringAsFixed(2);
+    final currencyCode =
+        (_store?['currency_code'] as String?)?.toUpperCase() ?? 'TND';
+
+    return CurrencyService.format(amount, currencyCode: currencyCode);
   }
 
   int _intValue(dynamic value) {
@@ -108,7 +113,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
           .from('businesses')
           .select(
             'id, name, shop_name, description, slug, phone, '
-            'city, address, logo_url, brand_color',
+            'city, address, logo_url, brand_color, currency_code',
           )
           .eq('slug', widget.storeSlug)
           .maybeSingle();

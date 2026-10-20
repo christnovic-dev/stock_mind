@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:stockmind/features/core/constant/app_color.dart';
 
+import '../../../core/services/currency_scope.dart';
+import '../../../core/services/currency_service.dart';
 import '../data/mock_product.dart';
 import '../services/product_services.dart';
 
@@ -534,7 +536,14 @@ class _ProductsPageState extends State<ProductsPage> {
                           DataCell(Text(product.reference)),
                           DataCell(Text(product.category)),
                           DataCell(
-                            Text('${product.price.toStringAsFixed(2)} DT'),
+                            Text(
+                              CurrencyService.format(
+                                product.price,
+                                currencyCode: CurrencyScope.of(
+                                  context,
+                                ).currencyCode,
+                              ),
+                            ),
                           ),
                           DataCell(Text('${product.quantity} unités')),
                           DataCell(_StatusBadge(status: product.stockStatus)),
@@ -881,7 +890,7 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
                 const SizedBox(height: 12),
                 _field(
                   priceController,
-                  'Prix de vente (DT)',
+                  'Prix de vente (${CurrencyService.symbolOf(CurrencyScope.of(context).currencyCode)})',
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),

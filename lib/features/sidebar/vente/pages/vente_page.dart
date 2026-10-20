@@ -3,6 +3,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../../../core/services/currency_scope.dart';
+import '../../../core/services/currency_service.dart';
 import '../../product/data/mock_product.dart';
 import '../../product/services/product_services.dart';
 import '../services/vente_service.dart';
@@ -105,7 +107,11 @@ class _VentePageState extends State<VentePage> {
     return total;
   }
 
-  String _money(num value) => '${value.toStringAsFixed(2)} DT';
+  String _money(num value) {
+    final currencyCode = CurrencyScope.of(context).currencyCode;
+
+    return CurrencyService.format(value, currencyCode: currencyCode);
+  }
 
   void _message(String message, {bool error = false}) {
     if (!mounted) return;
@@ -289,6 +295,13 @@ class _VentePageState extends State<VentePage> {
     final items = List<Map<String, dynamic>>.from(data['items'] as List);
     final date = data['created_at'] as DateTime;
 
+    final currencyCode = CurrencyScope.of(context).currencyCode;
+    final currencySymbol = CurrencyService.symbolOf(currencyCode);
+
+    String pdfMoney(num value) {
+      return CurrencyService.format(value, currencyCode: currencyCode);
+    }
+
     final paymentLabels = {
       'especes': 'Espèces',
       'carte': 'Carte bancaire',
@@ -334,8 +347,8 @@ class _VentePageState extends State<VentePage> {
               return [
                 item['name'].toString(),
                 item['quantity'].toString(),
-                '${(item['unit_price'] as num).toStringAsFixed(2)} DT',
-                '${(item['subtotal'] as num).toStringAsFixed(2)} DT',
+                pdfMoney(item['unit_price'] as num),
+                pdfMoney(item['subtotal'] as num),
               ];
             }).toList(),
             headerStyle: pw.TextStyle(
@@ -351,8 +364,7 @@ class _VentePageState extends State<VentePage> {
           pw.Align(
             alignment: pw.Alignment.centerRight,
             child: pw.Text(
-              'TOTAL : '
-              '${(data['total_amount'] as num).toStringAsFixed(2)} DT',
+              'TOTAL : ${pdfMoney(data['total_amount'] as num)}',
               style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold),
             ),
           ),
