@@ -414,10 +414,7 @@ class _DashboardHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 80,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 16 : 28,
-        vertical: isMobile ? 36 : 16,
-      ),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 28),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: AppColors.border)),
