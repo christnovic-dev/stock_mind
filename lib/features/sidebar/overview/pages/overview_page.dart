@@ -6,11 +6,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../Gestion_ressources_humaine/pages/horaire_page.dart';
 import '../../../Gestion_ressources_humaine/pages/presence_page.dart';
+import '../../abonnement/pages/abonnement_page.dart';
 import '../../assistant_ia/pages/assistant_ia.dart';
 import '../../boutiques/pages/ma_boutique.dart';
 import '../../categories/pages/categories_page.dart';
 import '../../clients/pages/client_page.dart';
 import '../../equipe/pages/employes_page.dart';
+import '../../finances/pages/creances_pages.dart';
 import '../../fournisseurs/pages/fournisseurs.dart';
 import '../../historique/pages/historiques_commandes.dart';
 import '../../mouvement/pages/mouvement_page.dart';
@@ -87,6 +89,8 @@ class _OverviewPageState extends State<OverviewPage> {
     MenuItem('Horaires', Icons.schedule),
     MenuItem('Analyse des ventes', Icons.sell),
     MenuItem('Assistant IA', Icons.auto_awesome_outlined),
+    MenuItem('Gestion de finances', Icons.money_sharp),
+    MenuItem('Abonnement', Icons.subscriptions_sharp),
   ];
 
   @override
@@ -144,6 +148,9 @@ class _OverviewPageState extends State<OverviewPage> {
                           13 => 'Horaires',
                           14 => 'Analyse des ventes',
                           15 => 'Assistant IA',
+                          16 => 'Gestion des finances',
+                          17 => 'Abonnement',
+
                           _ => 'Tableau de bord',
                         },
                       ),
@@ -153,6 +160,18 @@ class _OverviewPageState extends State<OverviewPage> {
                             ? VentesAnalyticsPage(
                                 key: ValueKey(
                                   'ventes_analytics_${widget.businessId}',
+                                ),
+                                businessId: widget.businessId,
+                              )
+                            : selectedIndex == 16
+                            ? DettesCreancesPage(
+                                key: ValueKey('finance_${widget.businessId}'),
+                                businessId: widget.businessId,
+                              )
+                            : selectedIndex == 17
+                            ? AbonnementPage(
+                                key: ValueKey(
+                                  'abonnement_${widget.businessId}',
                                 ),
                                 businessId: widget.businessId,
                               )
