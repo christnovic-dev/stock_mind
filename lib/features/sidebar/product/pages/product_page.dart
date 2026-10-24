@@ -111,10 +111,16 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   Future<void> openProductForm({StockProduct? product}) async {
+    // Récupérer la devise avant d'ouvrir le dialogue.
+    final currencyCode = CurrencyScope.of(context).currencyCode;
+
     final result = await showDialog<_ProductFormResult>(
       context: context,
-      builder: (_) =>
-          _ProductFormDialog(product: product, categories: categories),
+      builder: (_) => _ProductFormDialog(
+        product: product,
+        categories: categories,
+        currencyCode: currencyCode,
+      ),
     );
 
     if (result == null || !mounted) return;
@@ -644,8 +650,13 @@ class _ProductFormResult {
 class _ProductFormDialog extends StatefulWidget {
   final StockProduct? product;
   final List<String> categories;
+  final String currencyCode;
 
-  const _ProductFormDialog({this.product, required this.categories});
+  const _ProductFormDialog({
+    this.product,
+    required this.categories,
+    required this.currencyCode,
+  });
 
   @override
   State<_ProductFormDialog> createState() => _ProductFormDialogState();
@@ -890,7 +901,7 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
                 const SizedBox(height: 12),
                 _field(
                   priceController,
-                  'Prix de vente (${CurrencyService.symbolOf(CurrencyScope.of(context).currencyCode)})',
+                  'Prix de vente (${CurrencyService.symbolOf(widget.currencyCode)})',
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),

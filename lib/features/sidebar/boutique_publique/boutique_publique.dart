@@ -1631,15 +1631,20 @@ class _StorefrontPageState extends State<StorefrontPage> {
   Widget _buildProductGrid(bool wide) {
     final width = MediaQuery.of(context).size.width;
 
-    final columns = width >= 1150
-        ? 4
-        : width >= 780
-        ? 3
-        : width >= 520
-        ? 2
-        : 1;
+    // Nombre de produits par ligne selon la largeur de l'écran.
+    final int columns;
 
-    final horizontal = columns == 1;
+    if (width >= 1150) {
+      columns = 4;
+    } else if (width >= 780) {
+      columns = 3;
+    } else if (width >= 430) {
+      columns = 3;
+    } else {
+      columns = 2;
+    }
+
+    final isMobile = width < 780;
 
     return GridView.builder(
       shrinkWrap: true,
@@ -1647,9 +1652,9 @@ class _StorefrontPageState extends State<StorefrontPage> {
       itemCount: _filteredProducts.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
-        crossAxisSpacing: 20,
-        mainAxisSpacing: 20,
-        mainAxisExtent: horizontal ? 220 : 390,
+        crossAxisSpacing: isMobile ? 10 : 20,
+        mainAxisSpacing: isMobile ? 12 : 20,
+        mainAxisExtent: isMobile ? 330 : 390,
       ),
       itemBuilder: (context, index) {
         final product = _filteredProducts[index];
@@ -1663,7 +1668,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
           inCart: _cart[id] ?? 0,
           price: _doubleValue(product['price']),
           money: _money,
-          horizontal: horizontal,
+          horizontal: false,
           onAdd: () => _addToCart(product),
         );
       },

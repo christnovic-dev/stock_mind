@@ -189,25 +189,18 @@ class StorefrontProductCard extends StatelessWidget {
             fontWeight: FontWeight.w800,
           ),
         ),
-        if (reference.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text(
-            'Réf. $reference',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: _muted, fontSize: 11),
-          ),
-        ],
         const Spacer(),
         Text(
           money(price),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            color: _red,
-            fontSize: 21,
-            fontWeight: FontWeight.w900,
+            color: Color(0xFFF21D3D),
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         Row(
           children: [
             Container(
