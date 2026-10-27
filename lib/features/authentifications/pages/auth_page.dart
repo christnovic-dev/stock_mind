@@ -293,25 +293,7 @@ class _AuthPageState extends State<AuthPage> {
             icon: const Icon(Icons.arrow_back_rounded, color: AppColors.navy),
           ),
           const SizedBox(width: 8),
-          const _AuthLogo(),
-          const Spacer(),
-          Text(
-            _isLogin ? 'Nouveau sur StockMind ?' : 'Déjà un compte ?',
-            style: GoogleFonts.poppins(color: AppColors.muted, fontSize: 11),
-          ),
-          const SizedBox(width: 6),
-          TextButton(
-            onPressed: () =>
-                _switchMode(_isLogin ? AuthMode.signUp : AuthMode.login),
-            child: Text(
-              _isLogin ? 'Créer un compte' : 'Se connecter',
-              style: GoogleFonts.poppins(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-                fontSize: 11,
-              ),
-            ),
-          ),
+          Center(child: const _AuthLogo()),
         ],
       ),
     );
